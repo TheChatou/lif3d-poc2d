@@ -56,7 +56,7 @@ RP_X  = GRID_OFF_X + GRID_PX_W + 12   # = 792  (right panel)
 RP_W  = 290
 PANEL_X = RP_X; PANEL_W = RP_W        # alias backward-compat
 WINDOW_W   = RP_X + RP_W + 8          # = 1090
-WINDOW_H   = 800
+WINDOW_H   = 880   # fenêtre agrandie pour marges UI + section sample
 FPS        = 60
 # 🎓 22050 Hz = moitié de la qualité CD (44100). La loi de Nyquist dit qu'on peut
 #    reproduire des fréquences jusqu'à 22050/2 = 11025 Hz — largement suffisant
@@ -73,6 +73,11 @@ MASTER_GAIN  = 0.2
 # 🎓 os.makedirs avec exist_ok=True : crée le dossier si inexistant, sinon ne fait rien.
 PATTERNS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patterns")
 os.makedirs(PATTERNS_DIR, exist_ok=True)
+# 🎓 SAMPLES_DIR : dossier où l'utilisateur dépose ses fichiers .wav d'instruments.
+#    Le simulateur les charge, les pitche par rééchantillonnage numpy, et les joue
+#    à la place de la synthèse interne. Même dossier que patterns, facile à trouver.
+SAMPLES_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples")
+os.makedirs(SAMPLES_DIR, exist_ok=True)
 
 # ── Couleurs — thème Steampunk ────────────────────────────────────────────────
 # 🎓 Palette inspirée du steampunk : cuivre, laiton, bois sombre, parchemin.
@@ -145,7 +150,16 @@ PHASER_DIVS  = ["4","2","1","1/2","1/4","1/8","1/16","1/32"]
 #    Sine = pur et doux, Carré = creux et électronique, Dents de scie = brillant,
 #    Triangle = entre Sine et Carré, FM = riche et complexe (synthèse FM).
 #    Karplus = simulation physique de corde pincée (piano, guitare, koto...).
-WAVEFORMS  = ["Sine","Carré","Scie","Triangle","FM","FM2","FM3","Karplus"]
+#    Sample  = lecture d'un fichier .wav réel, pitché par rééchantillonnage.
+WAVEFORMS  = ["Sine","Carré","Scie","Triangle","FM","FM2","FM3","Karplus","Sample"]
+
+# 🎓 SAMPLE_BASE_NOTES : liste de notes "source" pour le sample chargé.
+#    Quand tu charges un .wav de guitare qui joue un La (A4), tu sélectionnes "A4"
+#    ici. Le simulateur calcule le décalage en demi-tons pour chaque ligne de grille
+#    et rééchantillonne en conséquence (2× vitesse = une octave plus haute).
+#    Format : note (C, C#... B) + octave (2 à 6) = 60 notes possibles.
+SAMPLE_BASE_NOTES = [f"{n}{o}" for o in range(2, 7) for n in ROOT_NOTES]
+# Index de A4 = (4-2)*12 + ROOT_NOTES.index("A") = 24+9 = 33
 
 # 🎓 Banque de sons : presets qui configurent d'un coup la forme d'onde + ADSR
 #    + detune + stereo + filtre + mode âge.
@@ -154,17 +168,17 @@ WAVEFORMS  = ["Sine","Carré","Scie","Triangle","FM","FM2","FM3","Karplus"]
 SOUND_PRESETS = {
     "Libre":   None,
     "Piano":   dict(waveform="Karplus",  attack=2,   decay=150, sustain=5,  release=200,
-                    detune=2,  stereo=55, filter=100, age_mode="Volume"),
+                    detune=2,  stereo=55, filter=100, resonance=0,  age_mode="Volume"),
     "Bell":    dict(waveform="FM2",      attack=5,   decay=400, sustain=5,  release=500,
-                    detune=0,  stereo=40, filter=95,  age_mode="Harmoniques"),
+                    detune=0,  stereo=40, filter=95,  resonance=0,  age_mode="Harmoniques"),
     "Orgue":   dict(waveform="Carré",    attack=10,  decay=10,  sustain=88, release=60,
-                    detune=4,  stereo=25, filter=75,  age_mode="Harmoniques"),
+                    detune=4,  stereo=25, filter=75,  resonance=22, age_mode="Harmoniques"),
     "Pad":     dict(waveform="Sine",     attack=180, decay=60,  sustain=75, release=350,
-                    detune=14, stereo=75, filter=100, age_mode="Volume"),
+                    detune=14, stereo=75, filter=100, resonance=0,  age_mode="Volume"),
     "Basse":   dict(waveform="Scie",     attack=4,   decay=70,  sustain=35, release=100,
-                    detune=6,  stereo=15, filter=60,  age_mode="Timbre"),
+                    detune=6,  stereo=15, filter=55,  resonance=48, age_mode="Timbre"),
     "Marimba": dict(waveform="Triangle", attack=2,   decay=100, sustain=8,  release=180,
-                    detune=0,  stereo=45, filter=100, age_mode="Volume"),
+                    detune=0,  stereo=45, filter=100, resonance=0,  age_mode="Volume"),
 }
 PRESET_NAMES = list(SOUND_PRESETS.keys())
 
@@ -309,29 +323,43 @@ def _make_wave(t, freq, waveform):
         return out
     return np.sin(2*np.pi*freq*t, dtype=np.float32)
 
-def _apply_filter(sig, cutoff_norm):
+def _apply_filter(sig, cutoff_norm, resonance_norm=0.0):
     """
-    🎓 Filtre passe-bas IIR (Infinite Impulse Response) du 1er ordre.
-    Formule : y[n] = alpha * x[n] + (1-alpha) * y[n-1]
-    alpha=1.0 → aucun filtre (signal intact)
-    alpha=0.05 → coupure très basse (son très sombre/sourd)
+    🎓 Filtre passe-bas biquad du 2nd ordre avec résonance (formule RBJ).
+    Utilisé dans tous les synthés hardware (Moog, TB-303, Juno...) car il sonne bien.
+
+    cutoff_norm  : 0.05 = très sombre, 1.0 = filtre ouvert (aucun effet)
+    resonance_norm : 0.0 = plat (Butterworth), 1.0 = forte résonance (pic à fc)
+
+    🎓 Le facteur Q contrôle la résonance. Q=0.7 = Butterworth (pente douce).
+       Q>2 = résonance audible. Q>8 = proche de l'auto-oscillation (effet acide).
+       La formule RBJ vient de l'Audio EQ Cookbook de Robert Bristow-Johnson (1994),
+       document de référence pour tous les filtres audionumériques.
     """
-    if cutoff_norm >= 0.99: return sig
-    alpha = float(max(0.005, min(1.0, cutoff_norm)))
-    try:
-        from scipy.signal import lfilter
-        b = [alpha]; a = [1.0, -(1.0 - alpha)]
-        return lfilter(b, a, sig).astype(np.float32)
-    except ImportError:
-        # Fallback sans scipy : boucle Python (plus lent mais fonctionnel)
-        out = np.empty_like(sig); prev = float(sig[0])
-        for i, x in enumerate(sig):
-            prev = prev + alpha*(float(x)-prev); out[i] = prev
-        return out
+    if cutoff_norm >= 0.99 and resonance_norm < 0.01:
+        return sig
+    from scipy.signal import lfilter
+    # 🎓 La fréquence de coupure normalisée fc = cutoff * 0.49 évite d'approcher
+    #    la fréquence de Nyquist (0.5) qui cause une instabilité numérique.
+    fc    = max(0.001, min(0.49, cutoff_norm * 0.49))
+    Q     = 0.5 + resonance_norm * 14.5   # Q de 0.5 (plat) à 15.0 (acide)
+    w0    = 2.0 * np.pi * fc
+    alpha = np.sin(w0) / (2.0 * Q)
+    cos_w = np.cos(w0)
+    b0 = (1.0 - cos_w) / 2.0
+    b1 =  1.0 - cos_w
+    b2 = (1.0 - cos_w) / 2.0
+    a0 =  1.0 + alpha
+    a1 = -2.0 * cos_w
+    a2 =  1.0 - alpha
+    b = [b0/a0, b1/a0, b2/a0]
+    a = [1.0,   a1/a0, a2/a0]
+    return lfilter(b, a, sig).astype(np.float32)
 
 def make_note(freq, dur_ms, age_mode, age_lvl, waveform="Sine",
               attack_ms=12, decay_ms=40, sustain_pct=55, release_ms=60,
-              detune_ct=7, stereo_pct=50, sr=SAMPLE_RATE):
+              detune_ct=7, stereo_pct=50, sr=SAMPLE_RATE,
+              wave_override=None):
     """
     🎓 Génère une note comme buffer numpy stéréo float32 (normalisé ±1.0).
     age_lvl : 0=vient de naître, 1=survie 1 génération, 2+=mature
@@ -356,6 +384,37 @@ def make_note(freq, dur_ms, age_mode, age_lvl, waveform="Sine",
     env[att_n:d_end] = np.linspace(1.0, sus, d_end - att_n)
     if rel_n < n:
         env[-rel_n:] = np.linspace(sus, 0.0, rel_n)
+
+    # 🎓 Mode Sample : si wave_override est fourni (buffer numpy float32 pré-pitché),
+    #    on l'utilise directement au lieu de synthétiser.
+    #    Le sample est bouclé ou tronqué pour atteindre exactement la durée ADSR.
+    #    Durée = 100% contrôlée par l'ADSR, indépendante de la hauteur du sample.
+    if wave_override is not None:
+        vol_scale = [0.25, 0.62, 1.0][a]   # âge 0=discret, 2=plein volume
+        src = wave_override
+        if len(src) >= n:
+            f = src[:n].copy()
+        else:
+            # 🎓 np.tile répète le tableau jusqu'à la longueur voulue → "sustain loop"
+            reps = (n // len(src)) + 1
+            f = np.tile(src, reps)[:n].copy()
+        f = (f * vol_scale * env).astype(np.float32)
+        peak = np.max(np.abs(f))
+        if peak > 0: f /= peak
+        # Stéréo (ITD identique au mode synthèse)
+        w = stereo_pct / 100.0
+        if w <= 0:
+            stereo = np.column_stack([f, f])
+        else:
+            pan_scale = [0.08, 0.18, 0.0][a]
+            if a < 2:
+                pan_l  = 1.0 - w * pan_scale
+                stereo = np.column_stack([f * pan_l, f])
+            else:
+                dly    = max(1, int(sr * w * 0.0015))
+                f_l    = np.concatenate([np.zeros(dly, dtype=np.float32), f[:-dly]])
+                stereo = np.column_stack([f_l, f])
+        return np.ascontiguousarray(stereo.astype(np.float32))
 
     if age_mode == "Harmoniques":
         # 🎓 Plus la cellule est vieille, plus on superpose d'harmoniques
@@ -530,6 +589,11 @@ class Sim:
         self.loop_frozen = []; self.loop_active = False; self.loop_pos = 0
         self.sounds    = {}
 
+        # 🎓 Sample .wav : buffer float32 mono à SAMPLE_RATE, chargé depuis un fichier.
+        #    None = pas de sample chargé (synthèse normale si waveform != "Sample").
+        self.sample_raw  = None   # np.ndarray float32 mono
+        self.sample_name = ""     # nom du fichier affiché dans le panneau
+
         # Arpégiateur
         self.arp_on       = False
         self.arp_schedule = []
@@ -544,81 +608,88 @@ class Sim:
         C_ENV = (210, 150, 50)   # couleur cuivre-or pour l'enveloppe ADSR
 
         # ── PANNEAU GAUCHE ────────────────────────────────────────────────────
-        self.sl_bpm    = Slider(lx,  56, lw,  0, 50, 20, "BPM",       color=C_WARM)
-        self.sl_vol    = Slider(lx, 104, lw,  0,100, 50, "Volume %")
-        self.sl_bright = Slider(lx, 152, lw, 10,100, 85, "Lumiere %")
+        self.sl_bpm    = Slider(lx,  62, lw,  0, 50, 20, "BPM",       color=C_WARM)
+        self.sl_vol    = Slider(lx, 112, lw,  0,100, 50, "Volume %")
+        self.sl_bright = Slider(lx, 162, lw, 10,100, 85, "Lumiere %")
 
         # 🎓 Root note : la note de base de la gamme.
         #    La penta en La (A) n'a pas les mêmes fréquences qu'en Sol (G).
-        self.cy_root   = Cycle(lx, 204, lw, "Tonique",   ROOT_NOTES,     default=0)
-        self.cy_scale  = Cycle(lx, 252, lw, "Gamme",     SCALE_NAMES,    default=0)
-        self.cy_rule   = Cycle(lx, 300, lw, "Regle GoL", GOL_RULE_NAMES, default=0)
+        self.cy_root   = Cycle(lx, 216, lw, "Tonique",   ROOT_NOTES,     default=0)
+        self.cy_scale  = Cycle(lx, 264, lw, "Gamme",     SCALE_NAMES,    default=0)
+        self.cy_rule   = Cycle(lx, 312, lw, "Regle GoL", GOL_RULE_NAMES, default=0)
 
-        self.btn_play  = Button(lx,            358, lbw,28,"Play",  toggle=True, active=False, color_on=C_GREEN)
-        self.btn_reset = Button(lx+lbw+4,      358, lbw,28,"Reset")
-        self.btn_clear = Button(lx+2*(lbw+4),  358, lbw,28,"Clear", color_on=C_RED)
-        self.btn_draw  = Button(lx,            396, lbw,28,"Dessin",toggle=True, active=False, color_on=C_PURPLE)
-        self.btn_save  = Button(lx+lbw+4,      396, lbw,28,"Save",  color_on=C_ORANGE)
-        self.btn_load  = Button(lx+2*(lbw+4),  396, lbw,28,"Load",  color_on=C_ORANGE)
+        self.btn_play  = Button(lx,            372, lbw,28,"Play",  toggle=True, active=False, color_on=C_GREEN)
+        self.btn_reset = Button(lx+lbw+4,      372, lbw,28,"Reset")
+        self.btn_clear = Button(lx+2*(lbw+4),  372, lbw,28,"Clear", color_on=C_RED)
+        self.btn_draw  = Button(lx,            412, lbw,28,"Dessin",toggle=True, active=False, color_on=C_PURPLE)
+        self.btn_save  = Button(lx+lbw+4,      412, lbw,28,"Save",  color_on=C_ORANGE)
+        self.btn_load  = Button(lx+2*(lbw+4),  412, lbw,28,"Load",  color_on=C_ORANGE)
 
-        self.btn_oct_dn = Button(lx,      444, 36,24,"-")
-        self.btn_oct_up = Button(lx+76,   444, 36,24,"+")
+        self.btn_oct_dn = Button(lx,      460, 36,24,"-")
+        self.btn_oct_up = Button(lx+76,   460, 36,24,"+")
 
-        self.cy_sym = Cycle(lx, 484, lw, "Symetrie", SYM_MODES, default=0)
+        self.cy_sym = Cycle(lx, 502, lw, "Symetrie", SYM_MODES, default=0)
 
-        self.btn_loop    = Button(lx,      536, 78,26,"Loop", toggle=True,active=False,color_on=C_ACCENT)
-        self.cy_loop_ln  = Cycle(lx+84,   536, 66,"",["x2","x4","x8"],default=1)
-        self.btn_loop_pp = Button(lx+156,  536, 58,26,"->")
+        self.btn_loop    = Button(lx,      554, 78,26,"Loop", toggle=True,active=False,color_on=C_ACCENT)
+        self.cy_loop_ln  = Cycle(lx+84,   554, 66,"",["x2","x4","x8"],default=1)
+        self.btn_loop_pp = Button(lx+156,  554, 58,26,"->")
 
-        self.btn_arp      = Button(lx,     584, 78,26,"Arp",toggle=True,active=False,color_on=C_TEAL)
-        self.cy_arp_mode  = Cycle(lx+84,  584, lw-88,"",ARP_MODES,  default=0)
-        self.cy_arp_speed = Cycle(lx,     628, lw,   "",ARP_SPEEDS, default=0)
+        self.btn_arp      = Button(lx,     604, 78,26,"Arp",toggle=True,active=False,color_on=C_TEAL)
+        self.cy_arp_mode  = Cycle(lx+84,  604, lw-88,"",ARP_MODES,  default=0)
+        self.cy_arp_speed = Cycle(lx,     650, lw,   "",ARP_SPEEDS, default=0)
 
         # ── PANNEAU DROIT ─────────────────────────────────────────────────────
         # 🎓 cy_preset : banque de sons prédéfinis. Chaque preset charge un jeu complet
         #    de paramètres (waveform + ADSR + detune + stereo + filtre).
         #    "Libre" = pas de preset, contrôle manuel de chaque paramètre.
-        self.cy_preset       = Cycle(rx,  14, rhw, "", PRESET_NAMES, default=0)
-        # 🎓 Bouton reset : remet tous les paramètres sonores aux valeurs initiales.
-        self.btn_reset_sound = Button(rrx, 22, rhw, 22, "Reset son", color_on=C_RED)
+        self.cy_preset       = Cycle(rx,  18, rhw, "", PRESET_NAMES, default=0)
+        self.btn_reset_sound = Button(rrx, 26, rhw, 22, "Reset son", color_on=C_RED)
 
-        self.cy_wave   = Cycle(rx,  52, rw, "Forme d'onde", WAVEFORMS,  default=0)
-        self.sl_filter = Slider(rx, 104, rw, 5, 100, 100, "Filtre %")
-        self.cy_age    = Cycle(rx,  152, rw, "Age -> Son",  AGE_MODES,  default=0)
+        self.cy_wave   = Cycle(rx,  66, rw, "Forme d'onde", WAVEFORMS, default=0)
+
+        # ── SAMPLE .WAV ────────────────────────────────────────────────────────
+        self.btn_load_sample = Button(rx, 112, rw, 22, "Charger .wav", color_on=C_TEAL)
+        self.cy_sample_base  = Cycle(rx, 140, rhw, "", SAMPLE_BASE_NOTES, default=33)
+
+        # ── FILTRE BIQUAD ──────────────────────────────────────────────────────
+        # 🎓 Cutoff + Résonance : paire classique de tout synthé hardware.
+        #    Cutoff = fréquence de coupure du filtre passe-bas (brillance du son).
+        #    Résonance = accentuation des fréquences proches de la coupure.
+        #    Ensemble ils recréent le son "TB-303", "Moog filter", "Juno chorus"...
+        self.sl_cutoff    = Slider(rx,  202, rhw, 5, 100, 100, "Cutoff %")
+        self.sl_resonance = Slider(rrx, 202, rhw, 0, 100,   0, "Reson %",  color=C_PURPLE)
+
+        self.cy_age    = Cycle(rx,  254, rw, "Age -> Son", AGE_MODES, default=0)
 
         # AGE GENERATION (filtre de lecture — zéro rebuild)
-        # 🎓 age_max  : cellules plus vieilles que N sont traitées comme âge N
-        # 🎓 age_mute : cellules à partir de N sont muettes (20 = aucun mute)
-        self.sl_age_max  = Slider(rx,  228, rhw,  1, 8, 8, "Age max",  color=C_ACCENT)
-        self.sl_age_mute = Slider(rrx, 228, rhw,  1, 8, 8, "Mute>=",   color=C_RED)
+        self.sl_age_max  = Slider(rx,  314, rhw, 1, 8, 8, "Age max",  color=C_ACCENT)
+        self.sl_age_mute = Slider(rrx, 314, rhw, 1, 8, 8, "Mute>=",   color=C_RED)
 
         # ADSR
-        self.sl_attack  = Slider(rx,  310, rhw,  1, 200,  12, "Att ms",  color=C_ENV)
-        self.sl_decay   = Slider(rrx, 310, rhw,  1, 200,  40, "Dec ms",  color=C_ENV)
-        self.sl_sustain = Slider(rx,  352, rhw,  0, 100,  55, "Sus %",   color=C_ENV)
-        self.sl_release = Slider(rrx, 352, rhw,  1, 200,  60, "Rel ms",  color=C_ENV)
+        self.sl_attack  = Slider(rx,  378, rhw,  1, 200,  12, "Att ms", color=C_ENV)
+        self.sl_decay   = Slider(rrx, 378, rhw,  1, 200,  40, "Dec ms", color=C_ENV)
+        self.sl_sustain = Slider(rx,  422, rhw,  0, 100,  55, "Sus %",  color=C_ENV)
+        self.sl_release = Slider(rrx, 422, rhw,  1, 200,  60, "Rel ms", color=C_ENV)
 
         # SYNTHESE
-        self.sl_detune  = Slider(rx,  410, rw,  0,  50,   7, "Detune cents")
-        self.sl_stereo  = Slider(rx,  452, rw,  0, 100,  50, "Stereo %")
+        self.sl_detune  = Slider(rx,  482, rw,  0,  50,   7, "Detune cents")
+        self.sl_stereo  = Slider(rx,  528, rw,  0, 100,  50, "Stereo %")
 
         # EFFETS (pedalboard)
-        self.btn_reverb     = Button(rx,       510, rhw, 26, "Reverb",
+        self.btn_reverb     = Button(rx,  582, rhw, 26, "Reverb",
                                      toggle=True, active=False, color_on=C_TEAL)
-        self.btn_chorus     = Button(rrx,      510, rhw, 26, "Chorus",
+        self.btn_chorus     = Button(rrx, 582, rhw, 26, "Chorus",
                                      toggle=True, active=False, color_on=C_PURPLE)
-        self.sl_reverb_room = Slider(rx,       550, rw, 0, 100, 30, "Room %", color=C_TEAL)
+        self.sl_reverb_room = Slider(rx,  622, rw,  0, 100, 30, "Room %", color=C_TEAL)
 
         # EFFETS RYTHMIQUES BPM-synced
-        # 🎓 cy_phaser_div : durée d'un cycle en mesures GoL. "1" = 1 mesure (16 cols).
-        #    "1/8" = 2 colonnes. "4" = 4 mesures (très lent, subtil).
-        self.btn_phaser      = Button(rx,   634, rhw, 26, "Phaser",
+        self.btn_phaser      = Button(rx,  688, rhw, 26, "Phaser",
                                       toggle=True, active=False, color_on=C_ORANGE)
-        self.btn_flanger     = Button(rrx,  634, rhw, 26, "Flanger",
+        self.btn_flanger     = Button(rrx, 688, rhw, 26, "Flanger",
                                       toggle=True, active=False, color_on=C_WARM)
-        self.cy_phaser_div   = Cycle(rx,    668, rw,  "", PHASER_DIVS, default=2)  # "1" = 1 mesure
-        self.sl_phaser_depth = Slider(rx,   718, rhw, 0, 100, 70, "Ph depth%", color=C_ORANGE)
-        self.sl_flanger_depth= Slider(rrx,  718, rhw, 0, 100, 70, "Fl depth%", color=C_WARM)
+        self.cy_phaser_div   = Cycle(rx,   726, rw,  "", PHASER_DIVS, default=2)
+        self.sl_phaser_depth = Slider(rx,  774, rhw, 0, 100, 70, "Ph depth%", color=C_ORANGE)
+        self.sl_flanger_depth= Slider(rrx, 774, rhw, 0, 100, 70, "Fl depth%", color=C_WARM)
 
         self._rebuild_sounds()
 
@@ -627,22 +698,24 @@ class Sim:
         """Applique le preset sélectionné dans cy_preset (sauf "Libre")."""
         p = SOUND_PRESETS.get(self.cy_preset.name)
         if p is None: return   # "Libre" : rien à faire
-        self.cy_wave.index    = WAVEFORMS.index(p["waveform"]) if p["waveform"] in WAVEFORMS else 0
-        self.sl_attack.value  = p["attack"]
-        self.sl_decay.value   = p["decay"]
-        self.sl_sustain.value = p["sustain"]
-        self.sl_release.value = p["release"]
-        self.sl_detune.value  = p["detune"]
-        self.sl_stereo.value  = p["stereo"]
-        self.sl_filter.value  = p["filter"]
-        self.cy_age.index     = AGE_MODES.index(p["age_mode"]) if p["age_mode"] in AGE_MODES else 0
+        self.cy_wave.index       = WAVEFORMS.index(p["waveform"]) if p["waveform"] in WAVEFORMS else 0
+        self.sl_attack.value     = p["attack"]
+        self.sl_decay.value      = p["decay"]
+        self.sl_sustain.value    = p["sustain"]
+        self.sl_release.value    = p["release"]
+        self.sl_detune.value     = p["detune"]
+        self.sl_stereo.value     = p["stereo"]
+        self.sl_cutoff.value     = p["filter"]
+        self.sl_resonance.value  = p.get("resonance", 0)
+        self.cy_age.index        = AGE_MODES.index(p["age_mode"]) if p["age_mode"] in AGE_MODES else 0
         self._rebuild_sounds()
 
     def _reset_sound_params(self):
         """Remet tous les paramètres du panneau droit à leurs valeurs par défaut."""
         self.cy_preset.index      = 0          # Libre
         self.cy_wave.index        = 0          # Sine
-        self.sl_filter.value      = 100
+        self.sl_cutoff.value      = 100
+        self.sl_resonance.value   = 0
         self.cy_age.index         = 0          # Harmoniques
         self.sl_age_max.value     = 8
         self.sl_age_mute.value    = 8
@@ -675,7 +748,8 @@ class Sim:
         # 🎓 Cap à 500ms : sans ça, à BPM=5 la durée serait 1875ms → buffer de 660 KB
         #    × 48 sons = 31 MB juste pour le dict sons. Le cap garde ~8 MB max.
         dur      = min(500, max(150, int(60000 / bpm / GRID_COLS * 2.5)))
-        filter_norm = self.sl_filter.value / 100.0
+        filter_norm    = self.sl_cutoff.value    / 100.0
+        resonance_norm = self.sl_resonance.value / 100.0
 
         # 🎓 Chaîne pedalboard : effets calculés une seule fois pour tout le rebuild.
         #    L'ordre compte : Phaser/Flanger d'abord (modulation), puis Chorus/Reverb (espace).
@@ -710,18 +784,44 @@ class Sim:
 
         self.sounds = {}
         root = self.cy_root.index   # 🎓 0=C, 2=D, 9=A … transposition de toute la gamme
+
+        # 🎓 Mode Sample : calcul de la note de base MIDI depuis cy_sample_base.
+        #    Formule : note_idx = index dans ROOT_NOTES (0=C … 11=B)
+        #              octave   = 2 + (index_global // 12)
+        #              midi     = 12 * (octave + 1) + note_idx
+        #    Ex: A4 → index=33, octave=2+2=4, midi=12*5+9=69 ✓
+        sample_base_midi = None
+        if waveform == "Sample" and self.sample_raw is not None:
+            idx = self.cy_sample_base.index
+            sample_base_midi = 12 * (2 + idx // 12 + 1) + (idx % 12)
+
         for row in range(GRID_ROWS):
             midi = row_to_midi(row, scale, self.octave, root)
             freq = midi_to_freq(midi)
+
+            # 🎓 Pré-pitchage du sample (une fois par ligne, partagé entre les 3 niveaux d'âge).
+            #    semitones = écart entre la note de grille et la note enregistrée du sample.
+            #    factor = 2^(semitones/12) — facteur de rééchantillonnage.
+            #    np.interp = interpolation linéaire ultrarapide (aucune FFT).
+            wave_ov = None
+            if sample_base_midi is not None:
+                semitones = midi - sample_base_midi
+                factor    = 2.0 ** (semitones / 12.0)
+                new_len   = max(2, int(len(self.sample_raw) / factor))
+                old_ix    = np.arange(len(self.sample_raw), dtype=np.float32)
+                new_ix    = np.linspace(0, len(self.sample_raw)-1, new_len, dtype=np.float32)
+                wave_ov   = np.interp(new_ix, old_ix, self.sample_raw).astype(np.float32)
+
             for a in (0, 1, 2):   # âge 0=né, 1=jeune, 2=mature
                 buf = make_note(freq, dur, mode, a, waveform,
                                self.sl_attack.value,  self.sl_decay.value,
                                self.sl_sustain.value, self.sl_release.value,
-                               self.sl_detune.value,  self.sl_stereo.value)
+                               self.sl_detune.value,  self.sl_stereo.value,
+                               wave_override=wave_ov)
 
                 # 🎓 Filtre baked : appliqué ici une fois, pas à chaque lecture
-                if filter_norm < 0.99:
-                    mono = _apply_filter(buf[:, 0], filter_norm)
+                if filter_norm < 0.99 or resonance_norm > 0.01:
+                    mono = _apply_filter(buf[:, 0], filter_norm, resonance_norm)
                     buf  = np.ascontiguousarray(np.column_stack([mono, mono]))
 
                 # 🎓 Pedalboard : traitement DSP offline → aucun coût à la lecture
@@ -925,6 +1025,104 @@ class Sim:
                             return
                 elif ev.type == pygame.MOUSEWHEEL:
                     scroll = max(0, min(len(files) - MAX_VIS, scroll - ev.y))
+            # 🎓 Sans cette pause, la boucle tourne à 100% CPU → système gelé.
+            #    wait(16) = ~60 fps max, le reste du CPU reste disponible pour l'OS.
+            pygame.time.wait(16)
+
+    def _load_sample_wav(self):
+        """
+        🎓 Sélecteur de samples .wav — overlay pygame-natif identique à _load().
+        Cherche les .wav dans simulator/samples/.
+        → Pour ajouter un sample : dépose le fichier dans ce dossier et recharge.
+        """
+        files = sorted(f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith(".wav"))
+        if not files:
+            print(f"Aucun .wav dans {SAMPLES_DIR}")
+            print(f"→ Dépose tes fichiers .wav dans : {SAMPLES_DIR}")
+            return
+
+        MAX_VIS = 16; ROW_H = 22
+        OW  = 440
+        OH  = min(MAX_VIS * ROW_H + 52, len(files) * ROW_H + 52)
+        ox  = (WINDOW_W - OW) // 2
+        oy  = (WINDOW_H - OH) // 2
+        selected = 0; scroll = 0
+
+        while True:
+            surf = pygame.Surface((OW, OH)); surf.fill((18, 13, 8))
+            pygame.draw.rect(surf, C_BORDER, (0, 0, OW, OH), 2)
+            surf.blit(self.font.render("Charger sample .wav  (↑↓ Entrée / ESC)", True, C_TEAL), (10, 10))
+            pygame.draw.line(surf, C_BORDER, (4, 30), (OW-4, 30), 1)
+            for i, fname in enumerate(files[scroll : scroll + MAX_VIS]):
+                abs_i = scroll + i; y = 36 + i * ROW_H
+                if abs_i == selected:
+                    pygame.draw.rect(surf, C_BTN_HOVER, (4, y-1, OW-8, ROW_H-1), border_radius=3)
+                surf.blit(self.fsm.render(fname, True, C_TEXT if abs_i == selected else C_TEXT_DIM), (12, y+2))
+            if len(files) > MAX_VIS:
+                sb_h = max(20, OH * MAX_VIS // len(files))
+                sb_y = 36 + (OH - 36) * scroll // len(files)
+                pygame.draw.rect(surf, C_BORDER, (OW-6, sb_y, 4, sb_h), border_radius=2)
+            self.screen.blit(surf, (ox, oy)); pygame.display.flip()
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT: return
+                if ev.type == pygame.KEYDOWN:
+                    if ev.key == pygame.K_ESCAPE: return
+                    elif ev.key == pygame.K_UP:
+                        selected = max(0, selected-1)
+                        if selected < scroll: scroll = selected
+                    elif ev.key == pygame.K_DOWN:
+                        selected = min(len(files)-1, selected+1)
+                        if selected >= scroll + MAX_VIS: scroll = selected - MAX_VIS + 1
+                    elif ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        self._load_wav_file(os.path.join(SAMPLES_DIR, files[selected])); return
+                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                    mx, my = ev.pos[0]-ox, ev.pos[1]-oy
+                    if 0 <= mx <= OW and 36 <= my < OH:
+                        idx = scroll + (my-36) // ROW_H
+                        if 0 <= idx < len(files):
+                            self._load_wav_file(os.path.join(SAMPLES_DIR, files[idx])); return
+                elif ev.type == pygame.MOUSEWHEEL:
+                    scroll = max(0, min(len(files)-MAX_VIS, scroll - ev.y))
+            pygame.time.wait(16)
+
+    def _load_wav_file(self, path):
+        """
+        🎓 Charge un fichier .wav et le prépare pour la synthèse par sample.
+        Étapes :
+          1. Lecture via scipy.io.wavfile (supporte PCM 8/16/32 bits et float)
+          2. Conversion en float32 mono (moyenne L+R si stéréo)
+          3. Rééchantillonnage à SAMPLE_RATE si le .wav a un taux différent
+             (ex: .wav 44100 Hz → 22050 Hz via numpy.interp, rapide et sans artefacts majeurs)
+        """
+        try:
+            from scipy.io import wavfile
+            rate, data = wavfile.read(path)
+            # Conversion en float32 normalisé -1.0..+1.0
+            if data.dtype == np.int16:
+                data = data.astype(np.float32) / 32768.0
+            elif data.dtype == np.int32:
+                data = data.astype(np.float32) / 2147483648.0
+            elif data.dtype == np.uint8:
+                data = (data.astype(np.float32) - 128.0) / 128.0
+            else:
+                data = data.astype(np.float32)
+            # Stéréo → mono
+            if data.ndim == 2:
+                data = data.mean(axis=1)
+            # Rééchantillonnage si besoin (ex: 44100 → 22050 Hz)
+            if rate != SAMPLE_RATE:
+                new_len = int(len(data) * SAMPLE_RATE / rate)
+                old_ix  = np.arange(len(data))
+                new_ix  = np.linspace(0, len(data)-1, new_len)
+                data    = np.interp(new_ix, old_ix, data).astype(np.float32)
+            self.sample_raw  = data
+            self.sample_name = os.path.basename(path)
+            print(f"Sample chargé : {self.sample_name}  "
+                  f"({len(data)} samples, {len(data)/SAMPLE_RATE:.2f}s)")
+            if self.cy_wave.name == "Sample":
+                self._rebuild_sounds()
+        except Exception as e:
+            print(f"Erreur chargement sample : {e}")
 
     def _toggle_loop(self):
         if self.btn_loop.active:
@@ -1016,17 +1214,19 @@ class Sim:
             prev_sc  = self.cy_scale.index; prev_ag  = self.cy_age.index
             prev_wv  = self.cy_wave.index;  prev_rt  = self.cy_root.index
             prev_pre = self.cy_preset.index
+            prev_sb  = self.cy_sample_base.index
 
             # 🎓 _rebuild_sls : sliders dont le changement nécessite un rebuild complet.
             #    sl_age_max / sl_age_mute : filtre lecture seule, pas de rebuild.
-            _rebuild_sls = (self.sl_filter, self.sl_attack, self.sl_decay,
+            _rebuild_sls = (self.sl_cutoff, self.sl_resonance,
+                            self.sl_attack,  self.sl_decay,
                             self.sl_sustain, self.sl_release,
                             self.sl_detune,  self.sl_stereo)
             for sl in (self.sl_bpm, self.sl_vol, self.sl_bright,
                        self.sl_age_max, self.sl_age_mute) + _rebuild_sls:
                 sl.handle_event(ev)
             for cy in (self.cy_preset, self.cy_root, self.cy_scale, self.cy_rule,
-                       self.cy_age, self.cy_wave,
+                       self.cy_age, self.cy_wave, self.cy_sample_base,
                        self.cy_sym, self.cy_loop_ln, self.cy_arp_mode, self.cy_arp_speed):
                 cy.handle_event(ev)
 
@@ -1036,10 +1236,15 @@ class Sim:
             # 🎓 just_released = True uniquement sur MOUSEBUTTONUP après un drag.
             #    Ça évite de recalculer 60× pendant le glissement.
             elif (self.cy_scale.index != prev_sc or self.cy_age.index != prev_ag
-                    or self.cy_wave.index != prev_wv or self.cy_root.index != prev_rt):
+                    or self.cy_wave.index != prev_wv or self.cy_root.index != prev_rt
+                    or self.cy_sample_base.index != prev_sb):
                 self._rebuild_sounds()
             if any(s.just_released for s in _rebuild_sls):
                 self._rebuild_sounds()
+
+            # Bouton charger sample .wav
+            if self.btn_load_sample.handle_event(ev) and self.btn_load_sample.just_clicked:
+                self._load_sample_wav()
 
             # Pedalboard — rebuild si un effet est activé/désactivé ou paramètre changé
             if HAS_PB:
@@ -1218,6 +1423,9 @@ class Sim:
         self.screen.blit(self.font.render(txt, True, C_TEXT_DIM), (x, y))
 
     def _draw_panel(self):
+        # Coordonnées du panneau droit (identiques à __init__)
+        rx  = RP_X + 14; rw = RP_W - 28; rhw = (rw - 4) // 2
+        rrx = rx + rhw + 4
         # ── Fonds des deux panneaux ───────────────────────────────────────────
         pygame.draw.rect(self.screen, C_PANEL, (LP_X,  0, LP_W,      WINDOW_H))
         pygame.draw.rect(self.screen, C_PANEL, (RP_X,  0, RP_W + 8,  WINDOW_H))
@@ -1234,14 +1442,14 @@ class Sim:
         self.sl_bpm.draw(self.screen, self.font)
         self.sl_vol.draw(self.screen, self.font)
         self.sl_bright.draw(self.screen, self.font)
-        self._sep(172, LP_X, LP_W)
+        self._sep(184, LP_X, LP_W)
 
         # 🎓 cy_root + cy_scale : la tonique + la gamme définissent ensemble les fréquences.
         #    Ex: Pentatonique en La (A) → toutes les notes transposées de 9 demi-tons.
         self.cy_root.draw(self.screen, self.font, self.fsm)
         self.cy_scale.draw(self.screen, self.font, self.fsm)
         self.cy_rule.draw(self.screen, self.font, self.fsm)
-        self._sep(320, LP_X, LP_W)
+        self._sep(334, LP_X, LP_W)
 
         self.btn_play.draw(self.screen, self.font)
         self.btn_reset.draw(self.screen, self.font)
@@ -1249,29 +1457,29 @@ class Sim:
         self.btn_draw.draw(self.screen, self.font)
         self.btn_save.draw(self.screen, self.font)
         self.btn_load.draw(self.screen, self.font)
-        self._sep(416, LP_X, LP_W)
+        self._sep(448, LP_X, LP_W)
 
-        self._lbl("Octave", 420, LP_X)
+        self._lbl("Octave", 452, LP_X)
         self.btn_oct_dn.draw(self.screen, self.font)
         self.screen.blit(self.flg.render(str(self.octave), True, C_ACCENT),
-                         (LP_X+58, 432))
+                         (LP_X+58, 464))
         self.btn_oct_up.draw(self.screen, self.font)
-        self._sep(470, LP_X, LP_W)
+        self._sep(494, LP_X, LP_W)
 
         self.cy_sym.draw(self.screen, self.font, self.fsm)
-        self._sep(520, LP_X, LP_W)
+        self._sep(540, LP_X, LP_W)
 
-        self._lbl("Boucle", 524, LP_X)
+        self._lbl("Boucle", 544, LP_X)
         self.btn_loop.draw(self.screen, self.font)
         self.cy_loop_ln.draw(self.screen, self.font, self.fsm)
         self.btn_loop_pp.draw(self.screen, self.font)
         if self.loop_active:
             n = max(len(self.loop_frozen), 1)
             self.screen.blit(self.fsm.render(f"{self.loop_pos%n+1}/{n}", True, C_ACCENT),
-                             (LP_X+220, 538))
-        self._sep(568, LP_X, LP_W)
+                             (LP_X+220, 558))
+        self._sep(590, LP_X, LP_W)
 
-        self._lbl("Arpege", 572, LP_X)
+        self._lbl("Arpege", 594, LP_X)
         self.btn_arp.draw(self.screen, self.font)
         self.cy_arp_mode.draw(self.screen, self.font, self.fsm)
         self.cy_arp_speed.draw(self.screen, self.font, self.fsm)
@@ -1279,60 +1487,71 @@ class Sim:
         # aide compacte en bas gauche
         for i, h in enumerate(["SPC:Play  R:Reset  C:Clear  D:Draw",
                                 "A:Arp   I:Stats   S:Save   +/-:BPM"]):
-            self.screen.blit(self.fsm.render(h, True, C_TEXT_DIM), (LP_X+10, 762+i*14))
+            self.screen.blit(self.fsm.render(h, True, C_TEXT_DIM), (LP_X+10, 786+i*14))
 
         # ── PANNEAU DROIT ─────────────────────────────────────────────────────
         self.cy_preset.draw(self.screen, self.font, self.fsm)
         self.btn_reset_sound.draw(self.screen, self.font)
-        self._sep(46)
+        self._sep(52)
 
         self.cy_wave.draw(self.screen, self.font, self.fsm)
-        self.sl_filter.draw(self.screen, self.font)
+
+        # ── SAMPLE .WAV ───────────────────────────────────────────────────────
+        self._sep(104)
+        self.btn_load_sample.draw(self.screen, self.font)
+        fname_display = (self.sample_name[:26] + "…" if len(self.sample_name) > 26 else self.sample_name) \
+                        if self.sample_name else "aucun fichier"
+        fname_col = C_TEAL if self.sample_name else C_TEXT_DIM
+        self.screen.blit(self.fsm.render(fname_display, True, fname_col), (rrx, 116))
+        self.cy_sample_base.draw(self.screen, self.font, self.fsm)
+        self.screen.blit(self.fsm.render("Note base", True, C_TEXT_DIM), (rrx, 142))
+        self._sep(180)
+
+        # ── FILTRE ────────────────────────────────────────────────────────────
+        self.sl_cutoff.draw(self.screen, self.font)
+        self.sl_resonance.draw(self.screen, self.font)
         self.cy_age.draw(self.screen, self.font, self.fsm)
-        # 🎓 Age → Son : age_max plafonne l'âge utilisé pour la lookup du son.
-        #    age_mute coupe le son des cellules trop vieilles → donne du mouvement.
-        #    Ces deux curseurs n'ont PAS besoin de rebuild (filtre de lecture seule).
+
         # ── AGE → SON ─────────────────────────────────────────────────────────
-        # 🎓 age_max/mute : filtre de lecture seule — pas de rebuild nécessaire
-        self._sep(202)
+        self._sep(298)
         self.sl_age_max.draw(self.screen, self.font)
         self.sl_age_mute.draw(self.screen, self.font)
 
         # ── ADSR ──────────────────────────────────────────────────────────────
-        self._sep(286)
+        self._sep(360)
         self.sl_attack.draw(self.screen, self.font)
         self.sl_decay.draw(self.screen, self.font)
         self.sl_sustain.draw(self.screen, self.font)
         self.sl_release.draw(self.screen, self.font)
 
         # ── SYNTHESE ──────────────────────────────────────────────────────────
-        self._sep(386)
+        self._sep(462)
         self.sl_detune.draw(self.screen, self.font)
         self.sl_stereo.draw(self.screen, self.font)
 
         # ── EFFETS ────────────────────────────────────────────────────────────
-        self._sep(466)
+        self._sep(560)
         if not HAS_PB:
             self.screen.blit(self.fsm.render("pip install pedalboard", True, C_RED),
-                             (RP_X+14, 472))
+                             (RP_X+14, 568))
         else:
             self.btn_reverb.draw(self.screen, self.font)
             self.btn_chorus.draw(self.screen, self.font)
             self.sl_reverb_room.draw(self.screen, self.font)
-            self._sep(578)
+            self._sep(658)
             self.screen.blit(self.fsm.render(
                 "Rythm. BPM" + ("" if HAS_PHASER else " (pedalboard>=0.9)"),
-                True, C_TEXT_DIM), (RP_X+14, 582))
+                True, C_TEXT_DIM), (RP_X+14, 664))
             self.btn_phaser.draw(self.screen, self.font)
             self.btn_flanger.draw(self.screen, self.font)
             self.cy_phaser_div.draw(self.screen, self.font, self.fsm)
             self.sl_phaser_depth.draw(self.screen, self.font)
             self.sl_flanger_depth.draw(self.screen, self.font)
-        self._sep(756)
+        self._sep(806)
 
         for i, h in enumerate(["</> Regle  haut/bas Gamme",
                                 "Oct: boutons panneau gauche"]):
-            self.screen.blit(self.fsm.render(h, True, C_TEXT_DIM), (RP_X+14, 762+i*14))
+            self.screen.blit(self.fsm.render(h, True, C_TEXT_DIM), (RP_X+14, 812+i*14))
 
     def _draw_status(self):
         pop      = self.lib.gol_population(self.ga)
@@ -1340,7 +1559,7 @@ class Sim:
         state    = ("Loop" if self.loop_active else
                     ("GoL"  if (self.playing and not self.draw_mode) else
                      ("Dessin" if self.draw_mode else "Pause")))
-        wave_info = f" | {self.cy_wave.name} F:{self.sl_filter.value}%"
+        wave_info = f" | {self.cy_wave.name} C:{self.sl_cutoff.value}% R:{self.sl_resonance.value}%"
         self.screen.blit(
             self.fsm.render(f"Gen {self.gen:4d}  Pop {pop:3d}/256  Col {self.col:2d}/15  "
                             f"{state}{arp_info}{wave_info}", True, C_TEXT_DIM),
