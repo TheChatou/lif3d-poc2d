@@ -1,0 +1,32 @@
+# ── PlatformIO ────────────────────────────────────────────────────────────────
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# ── Python / simulateur ───────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Compilé C (simulateur) ────────────────────────────────────────────────────
+simulator/gol.so
+simulator/gol.o
+
+# ── Patterns sauvegardés (optionnel : retire la ligne suivante pour les versionner)
+# simulator/patterns/*.map
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*~
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+*.swp
+
+# ── Claude Code (settings locaux) ────────────────────────────────────────────
+.claude/settings.local.json

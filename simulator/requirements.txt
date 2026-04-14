@@ -1,0 +1,10 @@
+# Dépendances Python du simulateur LIF2D
+# Installation : .venv/bin/pip install -r simulator/requirements.txt
+# (ou : make install)
+
+pygame>=2.1.0       # fenêtre, rendu, clavier/souris
+numpy>=1.21.0       # synthèse audio + accès grille GoL
+sounddevice>=0.4.0  # moteur audio temps réel (remplace pygame.mixer)
+pedalboard>=0.7.0   # effets DSP : Reverb, Chorus, Phaser, EQ...
+scipy>=1.7.0        # filtre IIR scipy.signal.lfilter (optionnel, fallback Python sinon)
+psutil>=5.9.0       # lecture RAM/CPU du processus (HUD stats touche I)
