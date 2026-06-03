@@ -1,0 +1,174 @@
+/* =========================================================================
+   LIF2D — Matrice LED + agencement (machine, panneaux, vue expert, chrome).
+   ========================================================================= */
+
+/* ---- Matrice (châsse en laiton) --------------------------------------- */
+.lif-matrix-bezel {
+  padding: 18px; border-radius: 12px;
+  background: linear-gradient(150deg, var(--brass) 0%, var(--brass-dim) 32%, var(--brass-deep) 70%, oklch(0.4 0.07 60) 100%);
+  box-shadow: inset 0 2px 2px rgba(255,236,190,.55), inset 0 -3px 8px rgba(0,0,0,.55),
+              0 12px 30px rgba(0,0,0,.55), 0 0 0 1px oklch(0.35 0.05 60);
+  position: relative;
+}
+.lif-matrix-bezel::before { /* liseré gravé */
+  content: ''; position: absolute; inset: 9px; border-radius: 8px; pointer-events: none;
+  box-shadow: inset 0 0 0 1.5px rgba(0,0,0,.35), inset 0 0 0 2.5px rgba(255,236,190,.25);
+}
+.lif-matrix-glass {
+  border-radius: 7px; padding: 12px; position: relative;
+  background:
+    radial-gradient(120% 120% at 50% 0%, oklch(0.15 0.012 52), oklch(0.08 0.008 50) 75%);
+  box-shadow: inset 0 0 0 2px #0b0805, inset 0 6px 22px rgba(0,0,0,.9);
+}
+
+/* rivets de la châsse */
+.lif-porthole { position: relative; }
+.lif-rivet { position: absolute; width: 13px; height: 13px; border-radius: 50%; z-index: 6;
+  background: radial-gradient(circle at 38% 32%, oklch(0.8 0.1 82), var(--brass-deep) 65%, #1c1510 100%);
+  box-shadow: inset 0 1px 1px rgba(255,240,200,.6), inset 0 -1px 2px rgba(0,0,0,.6), 0 1px 2px rgba(0,0,0,.5); }
+.lif-rivet.tl { top: 30px; left: 30px; } .lif-rivet.tr { top: 30px; right: 30px; }
+.lif-rivet.bl { bottom: 30px; left: 30px; } .lif-rivet.br { bottom: 30px; right: 30px; }
+.lif-matrix {
+  position: relative; aspect-ratio: 1; width: 560px; max-width: 100%;
+  touch-action: none; cursor: crosshair; border-radius: 3px;
+}
+.lif-cells {
+  position: absolute; inset: 0; display: grid;
+  grid-template-columns: repeat(16, 1fr); grid-template-rows: repeat(16, 1fr);
+  gap: 2px;
+}
+.lif-cell { position: relative; display: grid; place-items: center; }
+.lif-cell::after { /* alvéole sombre du diffuseur */
+  content: ''; position: absolute; inset: 14%; border-radius: 2px;
+  background: var(--led-recess);
+  box-shadow: inset 0 1px 1px rgba(0,0,0,.8), inset 0 -1px 0 rgba(255,255,255,.025);
+}
+.lif-led {
+  position: relative; z-index: 2; width: 60%; height: 60%; border-radius: 50%;
+  background: oklch(0.14 0.004 60); transition: opacity .12s;
+}
+.lif-led.is-on { transition: none; }
+
+.lif-playhead {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 3; pointer-events: none;
+  background: linear-gradient(90deg, transparent, hsla(45,90%,80%,.10) 40%, hsla(45,95%,85%,.16) 50%, hsla(45,90%,80%,.10) 60%, transparent);
+  box-shadow: 0 0 14px 3px hsla(45,90%,80%,.10);
+  transition: transform .05s linear;
+  mix-blend-mode: screen;
+}
+.lif-cursor {
+  position: absolute; top: 0; left: 0; z-index: 4; pointer-events: none; border-radius: 3px;
+  border: 1.5px solid var(--brass);
+  box-shadow: 0 0 8px var(--brass), inset 0 0 6px hsla(45,90%,70%,.5);
+  transition: transform .07s ease;
+}
+.lif-matrix-vignette { position: absolute; inset: 0; pointer-events: none; border-radius: 3px;
+  background: radial-gradient(130% 130% at 50% 45%, transparent 58%, rgba(0,0,0,.5) 100%); z-index: 5; }
+
+/* ---- Stage : mise à l'échelle ------------------------------------------ */
+.lif-stage { position: fixed; inset: 0; display: grid; align-items: start; justify-items: center;
+  overflow: hidden; padding: 60px 24px 24px; }
+.lif-scale { transform-origin: top center; }
+
+/* ---- Chrome haut (barre logo + toggle de vue) -------------------------- */
+.lif-chrome { position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 22px; pointer-events: none; }
+.lif-chrome > * { pointer-events: auto; }
+.lif-brand { display: flex; align-items: baseline; gap: 16px; }
+.lif-brand h1 { margin: 0; font-family: 'Cinzel', serif; font-weight: 700; font-size: 25px;
+  letter-spacing: 0.06em; color: var(--brass); text-shadow: 0 1px 0 #000, 0 0 14px rgba(210,170,90,.25); }
+.lif-brand .lif-brand-accent { color: var(--copper); }
+.lif-brand small { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--text-dim); letter-spacing: .04em; }
+
+/* ---- Le boîtier (bois sombre + cadre laiton) --------------------------- */
+.lif-case {
+  position: relative; border-radius: 18px; padding: 30px;
+  background:
+    repeating-linear-gradient(91deg, rgba(0,0,0,.16) 0 2px, rgba(255,210,140,.018) 2px 5px, rgba(0,0,0,0) 5px 9px),
+    linear-gradient(170deg, var(--wood-2) 0%, var(--wood-1) 48%, var(--wood-0) 100%);
+  box-shadow:
+    inset 0 2px 2px rgba(255,220,160,.12), inset 0 -5px 14px rgba(0,0,0,.6),
+    0 34px 80px rgba(0,0,0,.65),
+    0 0 0 2px oklch(0.30 0.05 58), 0 0 0 8px var(--brass-deep), 0 0 0 10px oklch(0.34 0.05 56),
+    0 0 0 12px oklch(0.16 0.02 52);
+}
+.lif-case::before { content: ''; position: absolute; inset: 0; border-radius: 18px; pointer-events: none;
+  background-image: repeating-linear-gradient(96deg, rgba(255,220,150,.025) 0 1px, rgba(0,0,0,.06) 1px 2px, transparent 2px 5px);
+  mix-blend-mode: overlay; }
+.lif-case-corner { position: absolute; }
+.lif-case-corner.tl { top: 12px; left: 12px; } .lif-case-corner.tr { top: 12px; right: 12px; }
+.lif-case-corner.bl { bottom: 12px; left: 12px; } .lif-case-corner.br { bottom: 12px; right: 12px; }
+
+/* plaque sérigraphiée */
+.lif-nameplate {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: .35em;
+  color: var(--brass-dim); text-transform: uppercase; opacity: .8; }
+
+/* ---- Groupes de contrôleurs / sous-panneaux ---------------------------- */
+.lif-bay {
+  border-radius: 12px; padding: 14px 16px 12px;
+  background: linear-gradient(180deg, rgba(0,0,0,.16), rgba(0,0,0,.30));
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.07), inset 0 -1px 3px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.35);
+}
+.lif-bay-title { font-family: 'Cinzel', serif; font-weight: 700; font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--brass);
+  text-align: center; margin-bottom: 12px; position: relative; }
+.lif-bay-title::before, .lif-bay-title::after { content: ''; position: absolute; top: 50%; width: 14%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--brass-deep)); }
+.lif-bay-title::before { left: 6%; } .lif-bay-title::after { right: 6%; transform: scaleX(-1); }
+
+.lif-row { display: flex; align-items: flex-end; justify-content: center; gap: 18px; }
+.lif-col { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---- Composition symétrique autour de la matrice ---------------------- */
+.lif-frame {
+  display: grid;
+  grid-template-columns: 168px auto 168px;
+  grid-template-rows: auto auto auto;
+  grid-template-areas:
+    "tl  top  tr"
+    "lft mtx  rgt"
+    "bl  bot  br";
+  gap: 20px 26px;
+  align-items: center; justify-items: center;
+}
+.lif-frame > .gtl { grid-area: tl; } .lif-frame > .gtr { grid-area: tr; }
+.lif-frame > .gbl { grid-area: bl; } .lif-frame > .gbr { grid-area: br; }
+.lif-frame > .gtop { grid-area: top; } .lif-frame > .gbot { grid-area: bot; }
+.lif-frame > .glft { grid-area: lft; } .lif-frame > .grgt { grid-area: rgt; }
+.lif-frame > .gmtx { grid-area: mtx; }
+
+/* rail vertical (côtés gauche/droite) */
+.lif-rail { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+/* socle pour un contrôleur isolé (coins) */
+.lif-mount {
+  display: flex; flex-direction: column; align-items: center; padding: 14px 16px 11px;
+  border-radius: 12px;
+  background: radial-gradient(120% 120% at 50% 0%, rgba(0,0,0,.12), rgba(0,0,0,.34));
+  box-shadow: inset 0 1px 1px rgba(255,220,150,.08), inset 0 -1px 3px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.4);
+}
+
+/* transport pills */
+.lif-pill {
+  font-family: 'Barlow Condensed'; font-weight: 600; font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+  padding: 8px 14px; border-radius: 7px; border: none; cursor: pointer; color: var(--text);
+  background: linear-gradient(180deg, var(--steel-2), var(--steel-0));
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.2), inset 0 -2px 4px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
+}
+.lif-pill:active { transform: translateY(1px); }
+.lif-pill.is-active { color: var(--brass); box-shadow: inset 0 1px 1px rgba(255,255,255,.2), inset 0 -2px 4px rgba(0,0,0,.5), 0 0 8px rgba(201,164,76,.3); }
+
+/* écran / readout numérique */
+.lif-screen {
+  font-family: 'Space Mono', monospace; color: var(--brass);
+  background: linear-gradient(180deg, #0c0a07, #100d0a);
+  border-radius: 6px; padding: 8px 12px; text-align: center;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 0 0 1px var(--panel-edge), 0 1px 0 rgba(255,255,255,.05);
+  text-shadow: 0 0 7px rgba(201,164,76,.5);
+}
+.lif-screen .big { font-size: 24px; line-height: 1; }
+.lif-screen .unit { font-size: 9px; color: var(--text-dim); letter-spacing: .1em; }
+.lif-screen .lbl { font-size: 8px; letter-spacing: .2em; color: var(--text-dim); text-transform: uppercase; }

@@ -30,3 +30,6 @@ Thumbs.db
 
 # ── Claude Code (settings locaux) ────────────────────────────────────────────
 .claude/settings.local.json
+
+# ── Simulateur web ────────────────────────────────────────────────────────────
+simulator-web/node_modules/

@@ -7,7 +7,30 @@ Beta 1 du projet **LIF3D** : un afficheur LED 16×16 piloté par le Jeu de la Vi
 
 ---
 
-## Lancer le simulateur (sans hardware)
+## Simulateurs
+
+### Simulateur Web (React + Web Audio API) — recommandé
+
+Esthétique steampunk haute-fidélité, aucune installation requise.
+
+```bash
+cd simulator-web
+npx serve .        # ou python3 -m http.server 8080
+# → ouvrir http://localhost:8080
+```
+
+**Fonctionnalités :**
+- Boîtier steampunk complet (bois sombre + cadre laiton) — vue Machine symétrique 3×3
+- Matrice LED 16×16 avec halo ambré (teinte = note, intensité = âge) + flash de lecture
+- Jeu de la Vie Conway B3/S23 synchronisé au BPM — 1 génération par balayage
+- Arpégiateur (Up/Down/Random/Ping-pong/Tierces/Quintes) avec subdivision (×1 à ×8, ternaire ×3/×6) et groove swing
+- Moteur Web Audio : synth multi-voix, ADSR, filtre, reverb, phaser, flanger
+- Vue Expert : 9 cartes de réglages + aperçu matrice temps réel
+- Responsive (scale transform), panneau Tweaks (densité, bloom, Ambre/Spectre)
+
+### Simulateur Python (pygame + sounddevice) — développement moteur
+
+Tourne directement le moteur GoL en C via ctypes. Utile pour tester le firmware.
 
 ```bash
 # 1. Installer les dépendances Python
@@ -20,8 +43,6 @@ bash simulator/build.sh
 python3 simulator/sim.py
 ```
 
-### Contrôles
-
 | Touche | Action |
 |--------|--------|
 | `ESPACE` | Play / Pause |
@@ -30,8 +51,6 @@ python3 simulator/sim.py
 | `← →` | Changer la règle GoL |
 | `↑ ↓` | Changer la gamme musicale |
 | `+ -` | BPM ±10 |
-
-Les sliders et boutons à l'écran reproduisent les contrôles physiques du futur boîtier.
 
 ---
 
@@ -50,6 +69,11 @@ simulator/
 ├── sim.py                ← simulateur pygame (fait tourner gol.so)
 ├── build.sh              ← compile gol.cpp → gol.so
 └── requirements.txt
+simulator-web/
+├── index.html            ← entrée HTML (React 18 + Babel CDN)
+├── css/                  ← styles (tokens steampunk, layout, controls, expert)
+├── js/                   ← composants (engine, audio, controls, matrix, machine, expert, app)
+└── reference/            ← prototype de design original (non-production)
 docs/
 └── LIF2D_CONTEXT_CLAUDECODE.md   ← spec technique complète
 ```

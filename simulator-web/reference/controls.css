@@ -1,0 +1,125 @@
+/* =========================================================================
+   LIF2D — Style des contrôleurs physiques.
+   ========================================================================= */
+
+/* ---- Potentiomètre rotatif --------------------------------------------- */
+.lif-pot { position: relative; cursor: ns-resize; touch-action: none; }
+.lif-pot-dial { position: absolute; inset: 0; pointer-events: none; }
+.lif-knob {
+  position: absolute; border-radius: 50%; cursor: ns-resize;
+  background:
+    radial-gradient(circle at 50% 38%, var(--steel-hi) 0%, var(--steel-1) 42%, var(--steel-0) 78%, #14110d 100%);
+  box-shadow: inset 0 2px 3px rgba(255,255,255,.32), inset 0 -3px 6px rgba(0,0,0,.7),
+              0 4px 9px rgba(0,0,0,.55), 0 0 0 1.5px rgba(0,0,0,.4);
+}
+.lif-knob::after {
+  content: ''; position: absolute; inset: 22%; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255,255,255,.05) 0 4deg, rgba(0,0,0,.10) 4deg 8deg);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.18);
+}
+.lif-knob-line {
+  position: absolute; left: 50%; top: 7%; width: 2.5px; height: 32%;
+  background: var(--brass); border-radius: 2px; transform: translateX(-50%);
+  box-shadow: 0 0 5px var(--brass), 0 1px 0 rgba(0,0,0,.5);
+}
+
+/* ---- Fader / slider linéaire ------------------------------------------- */
+.lif-fader { position: relative; width: 30px; cursor: ns-resize; touch-action: none; display: grid; place-items: center; }
+.lif-fader-track {
+  position: absolute; top: 6px; bottom: 6px; width: 7px; border-radius: 4px;
+  background: linear-gradient(90deg, #100d0a, var(--steel-0) 50%, #100d0a);
+  box-shadow: inset 0 0 3px rgba(0,0,0,.9), inset 0 1px 1px rgba(0,0,0,.8);
+}
+.lif-fader-fill {
+  position: absolute; bottom: 6px; width: 4px; border-radius: 3px;
+  background: linear-gradient(180deg, var(--brass), var(--brass-deep));
+  box-shadow: 0 0 6px var(--brass-dim);
+}
+.lif-fader-cap {
+  position: absolute; left: 50%; width: 26px; height: 18px; transform: translateX(-50%);
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--steel-hi), var(--steel-1) 45%, var(--steel-0));
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.4), inset 0 -2px 3px rgba(0,0,0,.6), 0 3px 6px rgba(0,0,0,.6);
+  display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 0 4px;
+}
+.lif-fader-cap span { height: 1.5px; background: rgba(0,0,0,.5); box-shadow: 0 1px 0 rgba(255,255,255,.15); }
+
+/* ---- Encodeur cranté ---------------------------------------------------- */
+.lif-enc { position: relative; cursor: grab; touch-action: none; }
+.lif-enc:active { cursor: grabbing; }
+.lif-enc-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, var(--steel-1), var(--steel-0) 70%, #120f0c);
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.2), inset 0 -2px 4px rgba(0,0,0,.7), 0 2px 5px rgba(0,0,0,.5);
+}
+.lif-knob-enc { background:
+    radial-gradient(circle at 50% 38%, var(--steel-2), var(--steel-0) 70%, #14110d); }
+.lif-enc-detents { position: absolute; inset: 0; border-radius: 50%; }
+.lif-enc-detents span {
+  position: absolute; left: 50%; top: 2px; width: 1.5px; height: 5px; margin-left: -0.75px;
+  background: rgba(0,0,0,.5); transform-origin: 50% calc(50% - 2px);
+}
+.lif-enc-dimple {
+  position: absolute; left: 50%; top: 16%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, var(--brass), var(--brass-deep));
+  box-shadow: 0 0 5px var(--brass-dim), inset 0 -1px 1px rgba(0,0,0,.5);
+}
+
+/* ---- Bouton poussoir ---------------------------------------------------- */
+.lif-btn {
+  width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer; padding: 0;
+  background: radial-gradient(circle at 50% 36%, var(--steel-hi), var(--steel-1) 50%, var(--steel-0) 88%, #14110d);
+  box-shadow: inset 0 2px 3px rgba(255,255,255,.34), inset 0 -3px 6px rgba(0,0,0,.7), 0 4px 8px rgba(0,0,0,.55);
+  display: grid; place-items: center; transition: transform .06s, box-shadow .06s;
+}
+.lif-btn.is-big { width: 58px; height: 58px; }
+.lif-btn:active { transform: translateY(2px); box-shadow: inset 0 2px 4px rgba(0,0,0,.7), 0 1px 2px rgba(0,0,0,.5); }
+.lif-btn-led {
+  width: 10px; height: 10px; border-radius: 50%; background: #2a2520;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.8);
+  transition: background .15s, box-shadow .15s;
+}
+.lif-btn.is-on .lif-btn-led {
+  background: var(--btn-led);
+  box-shadow: 0 0 8px var(--btn-led), 0 0 14px var(--btn-led), inset 0 0 2px rgba(255,255,255,.6);
+}
+
+/* ---- Molette ardoise magique ------------------------------------------- */
+.lif-wheel { position: relative; border-radius: 7px; overflow: hidden; touch-action: none;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 3px 7px rgba(0,0,0,.5), 0 0 0 1px var(--panel-edge);
+  background: var(--steel-0); }
+.lif-wheel.is-x { width: 120px; height: 38px; cursor: ew-resize; }
+.lif-wheel.is-y { width: 38px; height: 120px; cursor: ns-resize; }
+.lif-wheel-surf { position: absolute; inset: 0; }
+.lif-wheel.is-x .lif-wheel-shade { position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.55), transparent 28%, transparent 72%, rgba(0,0,0,.55)),
+              radial-gradient(120% 60% at 50% 50%, rgba(255,255,255,.16), transparent 60%); }
+.lif-wheel.is-y .lif-wheel-shade { position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(0,0,0,.55), transparent 28%, transparent 72%, rgba(0,0,0,.55)),
+              radial-gradient(60% 120% at 50% 50%, rgba(255,255,255,.16), transparent 60%); }
+
+/* ---- Haut-parleur ------------------------------------------------------- */
+.lif-speaker { width: 64px; height: 64px; border-radius: 50%; position: relative;
+  background: radial-gradient(circle at 50% 40%, var(--steel-1), var(--steel-0) 70%, #100d0a);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.5), 0 0 0 2px var(--panel-edge); }
+.lif-speaker-grille { position: absolute; inset: 5px; border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(0,0,0,.5) 0.7px, transparent 1.4px) 0 0 / 5px 5px;
+  box-shadow: inset 0 0 6px rgba(0,0,0,.7); }
+.lif-speaker-dust { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; transform: translate(-50%,-50%);
+  border-radius: 50%; background: radial-gradient(circle at 42% 38%, var(--steel-hi), var(--steel-0));
+  box-shadow: inset 0 -1px 2px rgba(0,0,0,.6), 0 1px 1px rgba(255,255,255,.1); transition: box-shadow .1s; }
+.lif-speaker.is-live .lif-speaker-dust { box-shadow: 0 0 8px var(--brass-dim), inset 0 -1px 2px rgba(0,0,0,.6); }
+
+/* ---- Toggle de vue ------------------------------------------------------ */
+.lif-toggle { display: inline-flex; align-items: center; gap: 9px; background: none; border: none; cursor: pointer;
+  font-family: 'Barlow Condensed'; font-size: 12px; letter-spacing: var(--gut); text-transform: uppercase;
+  color: var(--text-dim); }
+.lif-toggle-lbl { transition: color .2s; }
+.lif-toggle.is-on .lif-toggle-lbl:last-child, .lif-toggle:not(.is-on) .lif-toggle-lbl:first-child { color: var(--brass); }
+.lif-toggle-track { width: 42px; height: 20px; border-radius: 11px; background: var(--steel-0); position: relative;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.7); }
+.lif-toggle-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: linear-gradient(180deg, var(--steel-hi), var(--steel-0));
+  box-shadow: 0 1px 2px rgba(0,0,0,.6); transition: transform .2s cubic-bezier(.4,1.3,.5,1); }
+.lif-toggle.is-on .lif-toggle-thumb { transform: translateX(22px); }
