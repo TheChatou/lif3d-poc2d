@@ -343,70 +343,109 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
   );
 }
 
-/* ---- Vue Batterie plein-écran (3ème onglet de navigation) ---------------- */
+/* ---- Vue Batterie : matrice 16×16 + labels/mute/vol par piste ----------- */
 function BatterieView({ ctx }) {
-  const { drumPattern, setDrumPattern, playing, playCol, p, set } = ctx;
+  const { drumPattern, setDrumPattern, paintDrum, playing, playCol, p, set } = ctx;
 
-  const sliderBase = {
+  const sl = {  // style de base commun aux sliders inline
     WebkitAppearance: 'none', appearance: 'none',
     height: 3, borderRadius: 2, outline: 'none', cursor: 'pointer',
     background: 'rgba(255,255,255,.12)',
   };
 
-  return (
-    <div style={{ padding: '22px 28px', maxWidth: 920, margin: '0 auto' }}>
-      {/* ---- En-tête -------------------------------------------------------- */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 14,
-                    flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,.06)',
-                    paddingBottom: 12 }}>
-        <span style={{ fontFamily: 'Cinzel', fontSize: 13, letterSpacing: '.2em',
-                       color: 'var(--brass)', textTransform: 'uppercase' }}>
-          Batterie
-        </span>
+  const toggleMute = (track) =>
+    setDrumPattern({ ...drumPattern, mutes: drumPattern.mutes.map((m, t) => t === track ? !m : m) });
+  const setVol = (track, vol) =>
+    setDrumPattern({ ...drumPattern, vols: drumPattern.vols.map((v, t) => t === track ? vol : v) });
 
-        {/* Swing */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '.1em',
+  // Taille carrée de la matrice en px — ajuster si besoin
+  const SZ = 380;
+
+  return (
+    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12,
+                  maxWidth: SZ + 120, margin: '0 auto' }}>
+
+      {/* ---- En-tête : titre + swing + vol drums + presets ------------------ */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+                    borderBottom: '1px solid rgba(255,255,255,.06)', paddingBottom: 10 }}>
+        <span style={{ fontFamily: 'Cinzel', fontSize: 12, letterSpacing: '.2em',
+                       color: 'var(--brass)', textTransform: 'uppercase' }}>Batterie</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 9, color: 'var(--text-dim)', letterSpacing: '.1em',
                          textTransform: 'uppercase', fontFamily: 'var(--font-ui)' }}>Swing</span>
           <input type="range" min="0" max="1" step="0.01"
-            value={drumPattern.swing} style={{ ...sliderBase, width: 72 }}
+            value={drumPattern.swing} style={{ ...sl, width: 68 }}
             onChange={(e) => setDrumPattern({ ...drumPattern, swing: parseFloat(e.target.value) })} />
-          <span style={{ fontSize: 10, color: 'var(--brass)', fontFamily: 'Space Mono',
-                         minWidth: 28 }}>{Math.round(drumPattern.swing * 100)}%</span>
+          <span style={{ fontSize: 9, color: 'var(--brass)', fontFamily: 'Space Mono', minWidth: 26 }}>
+            {Math.round(drumPattern.swing * 100)}%</span>
         </div>
 
-        {/* Volume drums indépendant */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '.1em',
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 9, color: 'var(--text-dim)', letterSpacing: '.1em',
                          textTransform: 'uppercase', fontFamily: 'var(--font-ui)' }}>Vol Drums</span>
           <input type="range" min="0" max="1" step="0.01"
-            value={p.drumVolume ?? 0.75} style={{ ...sliderBase, width: 88 }}
+            value={p.drumVolume ?? 0.75} style={{ ...sl, width: 80 }}
             onChange={(e) => set('drumVolume', parseFloat(e.target.value))} />
-          <span style={{ fontSize: 10, color: 'var(--brass)', fontFamily: 'Space Mono',
-                         minWidth: 28 }}>{Math.round((p.drumVolume ?? 0.75) * 100)}%</span>
+          <span style={{ fontSize: 9, color: 'var(--brass)', fontFamily: 'Space Mono', minWidth: 26 }}>
+            {Math.round((p.drumVolume ?? 0.75) * 100)}%</span>
         </div>
-      </div>
 
-      {/* ---- Presets -------------------------------------------------------- */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        {/* Presets */}
         {Object.keys(DRUM_PRESETS).map((name) => (
           <button key={name} className="lif-drum-preset"
-            onClick={() => setDrumPattern({
-              ...drumPattern,
-              steps: DRUM_PRESETS[name].map((r) => [...r]),
-            })}>
+            onClick={() => setDrumPattern({ ...drumPattern, steps: DRUM_PRESETS[name].map((r) => [...r]) })}>
             {name}
           </button>
         ))}
       </div>
 
-      {/* ---- Grille 16 pistes ---------------------------------------------- */}
-      <DrumMachine
-        pattern={drumPattern}
-        onChange={setDrumPattern}
-        playCol={playCol}
-        playing={playing}
-      />
+      {/* ---- Zone principale : labels pistes (gauche) + matrice (droite) ---- */}
+      <div style={{ display: 'flex', gap: 0, height: SZ }}>
+
+        {/* Labels pistes : 16 lignes alignées sur la hauteur de la matrice */}
+        <div style={{ display: 'grid', gridTemplateRows: 'repeat(16, 1fr)',
+                      width: 96, height: SZ, flexShrink: 0 }}>
+          {DRUM_NAMES.map((name, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 3,
+              padding: '0 5px', borderBottom: '1px solid rgba(255,255,255,.03)',
+            }}>
+              {/* Bouton mute */}
+              <button onClick={() => toggleMute(i)} style={{
+                width: 15, height: 15, borderRadius: 3, flexShrink: 0,
+                border: `1px solid ${drumPattern.mutes[i] ? 'rgba(217,83,79,.6)' : 'rgba(255,255,255,.15)'}`,
+                background: drumPattern.mutes[i] ? 'rgba(217,83,79,.25)' : 'rgba(255,255,255,.05)',
+                color: drumPattern.mutes[i] ? '#d9534f' : 'var(--text-dim)',
+                fontSize: 7, cursor: 'pointer', display: 'grid', placeItems: 'center',
+              }}>M</button>
+
+              {/* Abréviation colorée */}
+              <span style={{ color: DRUM_HUE[i], fontSize: 9, fontFamily: 'Space Mono',
+                             fontWeight: 700, width: 17, flexShrink: 0, lineHeight: 1 }}>
+                {DRUM_ABBR[i]}
+              </span>
+
+              {/* Slider volume */}
+              <input type="range" min="0" max="1" step="0.01"
+                value={drumPattern.vols[i] ?? 0.65}
+                style={{ ...sl, width: 30, flexShrink: 0 }}
+                onChange={(e) => setVol(i, parseFloat(e.target.value))} />
+            </div>
+          ))}
+        </div>
+
+        {/* Matrice 16×16 en mode Drum — clic pour poser/effacer les pas */}
+        <div style={{ width: SZ, height: SZ, flexShrink: 0 }}>
+          <window.Matrix
+            grid={window.emptyGrid()} gen={0} pitches={[]}
+            brightness={p.brightness} bloom={1} warm={false}
+            playCol={playing ? playCol : -1} playing={playing}
+            cursor={null} drawMode={false}
+            onPaint={paintDrum}
+            drumMode={true} drumPattern={drumPattern} />
+        </div>
+      </div>
     </div>
   );
 }

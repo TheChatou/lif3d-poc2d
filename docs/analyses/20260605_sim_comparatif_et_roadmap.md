@@ -106,37 +106,91 @@ MODE GOL              MODE DRUM
 
 ## 5. Contrôleurs physiques — décisions
 
-### Tableau final des contrôleurs
+### Design cible : 6 contrôles physiques
 
-| # | Rôle | Physique | Décision |
+Réduction drastique grâce à la matrice utilisée comme écran de menu (voir section 6).
+
+| # | Rôle | Physique | Statut |
 |---|---|---|---|
-| 1 | Volume général | Pot rotatif | Garder |
-| 2 | BPM (40–300) | Encodeur EC11 | Garder |
-| 3 | Gamme musicale | Gros encodeur "valve" | Garder — beau pour le design |
-| 4 | Timbre | Encodeur EC11 | Garder |
-| 5 | Octave | Encodeur EC11 | Garder |
-| 6 | Axe Y dessin | Gros encodeur gauche | Garder — press = placer/effacer |
-| 7 | Axe X dessin | Gros encodeur droit | Garder — press = placer/effacer |
-| 8 | Play/Pause | Bouton poussoir | Garder |
-| 9 | Reset/New seed | Bouton poussoir | Garder — long press = formes |
-| 10 | Luminosité LED | Pot linéaire | Garder |
-| 11 | Règles GoL | Pot à crans | Transformer → EC11 (press = switch GOL/DRUM) |
+| 1 | Volume général | Pot rotatif | Garder — accès immédiat indispensable |
+| 2 | Luminosité LED | Pot rotatif | Garder — accès immédiat indispensable |
+| 3 | Axe X dessin / navigation | Gros encodeur EC11 droit | Garder — multi-rôle selon mode |
+| 4 | Axe Y dessin / navigation | Gros encodeur EC11 gauche | Garder — multi-rôle selon mode |
+| 5 | Play/Pause | Bouton poussoir | Garder — doit être instantané |
+| 6 | Reset/New seed | Bouton poussoir | Garder — long press = formes |
 
-### Suppression du bouton "Mode Dessin"
+**Supprimés / absorbés par les menus matrix :**
+BPM, Gamme, Timbre, Octave, Règles GoL → deviennent des sous-menus dans l'overlay matrice.
 
-Les encodeurs X/Y (EC11, pressables) remplacent le bouton toggle dessin/déplacement :
+### Interaction "Télécran" — encodeurs X/Y
+
+Les deux gros encodeurs EC11 pressables sont le cœur de l'interaction :
+
 - **Tourner** → déplace le curseur (LED clignote sur la position courante)
-- **Presser** → place ou efface une cellule selon l'état du stylo
-- **Double press** → bascule crayon / gomme
+- **Presser (clic)** → place ou efface la cellule — le mode (crayon/gomme) est déterminé par l'état de la cellule sous le curseur au moment du clic (vivante = efface, morte = place)
+- **Maintenir appuyé + tourner** → peint en continu sur la trajectoire du curseur
 
-Le bouton "Mode Dessin" de l'UI web est donc supprimé du design physique.
+Pas de bascule crayon/gomme explicite — l'état de la cellule dicte l'action. Comportement identique sur les deux axes.
+
+### Multi-rôle des encodeurs selon le mode
+
+| Mode | Encodeur X | Encodeur Y |
+|---|---|---|
+| GoL Dessin | Curseur X | Curseur Y |
+| Drum Dessin | Pas de temps (colonne) | Instrument / ligne |
+| Mémoire | Slot horizontal | Slot vertical |
+| Menu overlay | Navigation liste | Ajustement valeur |
 
 ---
 
-## 6. Prochaines étapes (ordre suggéré)
+## 6. Matrice comme écran de menu (Matrix UI)
+
+### Principe
+
+La matrice 16×16 sert à la fois d'affichage GoL et d'interface de menu. Un overlay couleur dédiée (blanc pur — jamais utilisé par le GoL) affiche les menus sans interrompre le jeu.
+
+```
+GoL actif + menu overlay
+┌────────────────┐
+│ . . ● . . ● . │  ← GoL en fond
+│[BPM  ████░░░] │  ← overlay menu (blanc)
+│ . ● . . . . ● │
+│ ...            │
+└────────────────┘
+```
+
+### Déclenchement
+
+- **Long press encodeur Y** → ouvre le menu principal
+- **Tourner X** → navigue entre les paramètres (BPM / Gamme / Timbre / Octave / Règles)
+- **Tourner Y** → ajuste la valeur du paramètre sélectionné
+- **Press Y** → confirme et ferme
+- **Timeout 2s sans interaction** → fermeture automatique
+
+### Paramètres accessibles via menu
+
+| Paramètre | Représentation sur matrice |
+|---|---|
+| BPM | Barre horizontale 16 segments (40–300 BPM) |
+| Gamme | Icône 1 colonne par gamme (6 gammes = 6 colonnes) |
+| Timbre | Barre horizontale 16 segments |
+| Octave | Position verticale (1 LED = 1 octave, 6 possibles) |
+| Règles GoL | Icône par règle (B6S567, B5S45…) |
+
+### Mode Mémoire (futur)
+
+Grille navigable avec les encodeurs X/Y. Chaque cellule = 1 slot mémoire.
+- Contenu : formes GoL sauvegardées, presets instruments, patterns drum
+- Stockage : LittleFS (flash ESP32, 4MB disponibles, ~32 octets par grille GoL = des centaines de slots)
+- Press = charger, long press = sauvegarder dans le slot
+
+---
+
+## 7. Prochaines étapes (ordre suggéré)
 
 1. **Corriger le Loop** dans le web (bug, rapide)
 2. **Corriger les gammes** — `buildPitches` multi-octaves
 3. **Drum dans la matrice** — dual mode, 16 instruments, presets
 4. **Performance** — Canvas + Web Worker
-5. **Design physique** — liste de commande AliExpress des encodeurs
+5. **Matrix UI** — prototype de l'overlay menu dans le sim web
+6. **Design physique** — liste de commande AliExpress (2 pots + 2 EC11 + 2 boutons)
