@@ -43,6 +43,7 @@ const ARP_MODES = [
   'Ping-pong', // 3 — aller-retour
   'Tierces',   // 4 — note courante + note 2 positions au-dessus (intervalle de tierce)
   'Quintes',   // 5 — note courante + note 4 positions au-dessus (intervalle de quinte)
+  'Accord',    // 6 — toutes les notes de la colonne jouées simultanément (comme le sim Python)
 ];
 
 // Nombre de sous-ticks dans le 1/16 de balayage d'une colonne.
@@ -255,6 +256,11 @@ function arpNoteIndices(subTickIdx, N, modeIdx) {
     // Quintes : note[main] + note[(main+4)%N]
     const second = (main + 4) % N;
     return second !== main ? [main, second] : [main];
+  }
+  if (modeIdx === 6) {
+    // 🎓 Accord : toutes les notes en même temps → son polyphonique/pad.
+    // Identique au mode "Chord" du sim Python.
+    return Array.from({ length: N }, (_, i) => i);
   }
 
   return [main]; // Up / Down / Random / Ping-pong

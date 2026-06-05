@@ -221,7 +221,36 @@ function Toggle({ on, onChange, labels = ['', ''] }) {
   );
 }
 
+/* ---- Sélecteur de vue 3 positions (remplace le Toggle binaire) ----------- */
+function ViewTab({ value, onChange, options, labels }) {
+  return (
+    <div style={{
+      display: 'flex', gap: 2,
+      background: 'rgba(0,0,0,.40)', borderRadius: 9, padding: 2,
+      border: '1px solid rgba(255,255,255,.06)',
+    }}>
+      {options.map((opt, i) => (
+        <button key={opt} onClick={() => onChange(opt)} style={{
+          fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+          letterSpacing: '.12em', textTransform: 'uppercase',
+          padding: '5px 13px', borderRadius: 7, border: 'none', cursor: 'pointer',
+          background: value === opt
+            ? 'linear-gradient(180deg,var(--steel-2),var(--steel-0))'
+            : 'transparent',
+          color:   value === opt ? 'var(--brass)' : 'var(--text-dim)',
+          boxShadow: value === opt
+            ? 'inset 0 1px 1px rgba(255,255,255,.18), 0 1px 3px rgba(0,0,0,.5)'
+            : 'none',
+          transition: 'color .15s, background .15s',
+        }}>
+          {labels[i]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 Object.assign(window, {
-  Screw, RotaryPot, Slider, Encoder, PushButton, DrawWheel, Speaker, Toggle,
+  Screw, RotaryPot, Slider, Encoder, PushButton, DrawWheel, Speaker, Toggle, ViewTab,
   useDrag,
 });

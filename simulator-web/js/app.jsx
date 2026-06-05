@@ -40,6 +40,7 @@ const DEFAULT = {
   phaserDepth: 0.4,
   flangerOn:   false,
   flangerDepth: 0.3,
+  drumVolume:  0.75,  // volume batterie, indépendant du volume GoL
 };
 
 /* ---- Valeurs par défaut des tweaks (persistés dans le panneau) ----------- */
@@ -58,7 +59,7 @@ function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
   /* ---- Vue active -------------------------------------------------------- */
-  const [view, setView] = useState('machine');   // 'machine' | 'expert'
+  const [view, setView] = useState('machine');   // 'machine' | 'expert' | 'batterie'
 
   /* ---- Paramètres de synthèse / séquenceur ------------------------------ */
   const [p, setP] = useState(DEFAULT);
@@ -147,11 +148,12 @@ function App() {
       phaserDepth: p.phaserDepth,
       flangerOn:   p.flangerOn,
       flangerDepth: p.flangerDepth,
+      drumVolume:  p.drumVolume,
     });
   }, [
     p.volume, p.cutoff, p.resonance, p.reverb, p.waveIdx,
     p.attack, p.decay, p.sustain, p.release, p.detune, p.stereo,
-    p.phaserOn, p.phaserDepth, p.flangerOn, p.flangerDepth,
+    p.phaserOn, p.phaserDepth, p.flangerOn, p.flangerDepth, p.drumVolume,
   ]);
 
   /* ---- Ancre de loop : mise à jour quand loopOn change ------------------- */
@@ -416,7 +418,7 @@ function App() {
     live, saved, t, setTweak,
     togglePlay, doReset, doClear, doSave, doLoad,
     stampShape, paint, moveCursor,
-    drumMode, setDrumMode, drumPattern, paintDrum,
+    drumMode, setDrumMode, drumPattern, setDrumPattern, paintDrum,
   };
 
   /* ---- Rendu ------------------------------------------------------------- */
@@ -428,29 +430,36 @@ function App() {
           <h1>LIF<span className="lif-brand-accent">2D</span></h1>
           <small>BETA 1 · 16×16 · CONWAY ENGINE</small>
         </div>
-        <Toggle
-          on={view === 'expert'}
-          onChange={(v) => setView(v ? 'expert' : 'machine')}
-          labels={['Machine', 'Expert']} />
+        <ViewTab
+          value={view}
+          onChange={setView}
+          options={['machine', 'expert', 'batterie']}
+          labels={['Machine', 'Expert', 'Batterie']} />
       </div>
 
-      {/* Stage : contient le contenu scalé */}
+      {/* Stage : contient le contenu scalé (Machine/Expert) ou la vue Batterie */}
       <div className="lif-stage" ref={stageRef}>
-        <div className="lif-scale" ref={contentRef}
-             style={{ transform: `scale(${scale})` }}>
-          {view === 'machine'
-            ? <MachineView ctx={viewCtx} />
-            : <ExpertView  ctx={viewCtx} />}
-        </div>
+        {view === 'batterie'
+          ? <window.BatterieView ctx={viewCtx} />
+          : (
+            <div className="lif-scale" ref={contentRef}
+                 style={{ transform: `scale(${scale})` }}>
+              {view === 'machine'
+                ? <MachineView ctx={viewCtx} />
+                : <ExpertView  ctx={viewCtx} />}
+            </div>
+          )}
       </div>
 
-      {/* Boîte à rythmes (drawer bas, indépendant des vues) */}
-      <window.DrumPanel
-        pattern={drumPattern}
-        onChange={setDrumPattern}
-        playCol={playCol}
-        playing={playing}
-      />
+      {/* Tiroir Batterie : visible seulement hors de la vue Batterie */}
+      {view !== 'batterie' && (
+        <window.DrumPanel
+          pattern={drumPattern}
+          onChange={setDrumPattern}
+          playCol={playCol}
+          playing={playing}
+        />
+      )}
 
       {/* Panneau Tweaks (paramètres de rendu & simulation) */}
       <TweaksPanel title="LIF2D Tweaks">

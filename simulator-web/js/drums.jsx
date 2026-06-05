@@ -343,9 +343,78 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
   );
 }
 
+/* ---- Vue Batterie plein-écran (3ème onglet de navigation) ---------------- */
+function BatterieView({ ctx }) {
+  const { drumPattern, setDrumPattern, playing, playCol, p, set } = ctx;
+
+  const sliderBase = {
+    WebkitAppearance: 'none', appearance: 'none',
+    height: 3, borderRadius: 2, outline: 'none', cursor: 'pointer',
+    background: 'rgba(255,255,255,.12)',
+  };
+
+  return (
+    <div style={{ padding: '22px 28px', maxWidth: 920, margin: '0 auto' }}>
+      {/* ---- En-tête -------------------------------------------------------- */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 14,
+                    flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,.06)',
+                    paddingBottom: 12 }}>
+        <span style={{ fontFamily: 'Cinzel', fontSize: 13, letterSpacing: '.2em',
+                       color: 'var(--brass)', textTransform: 'uppercase' }}>
+          Batterie
+        </span>
+
+        {/* Swing */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '.1em',
+                         textTransform: 'uppercase', fontFamily: 'var(--font-ui)' }}>Swing</span>
+          <input type="range" min="0" max="1" step="0.01"
+            value={drumPattern.swing} style={{ ...sliderBase, width: 72 }}
+            onChange={(e) => setDrumPattern({ ...drumPattern, swing: parseFloat(e.target.value) })} />
+          <span style={{ fontSize: 10, color: 'var(--brass)', fontFamily: 'Space Mono',
+                         minWidth: 28 }}>{Math.round(drumPattern.swing * 100)}%</span>
+        </div>
+
+        {/* Volume drums indépendant */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '.1em',
+                         textTransform: 'uppercase', fontFamily: 'var(--font-ui)' }}>Vol Drums</span>
+          <input type="range" min="0" max="1" step="0.01"
+            value={p.drumVolume ?? 0.75} style={{ ...sliderBase, width: 88 }}
+            onChange={(e) => set('drumVolume', parseFloat(e.target.value))} />
+          <span style={{ fontSize: 10, color: 'var(--brass)', fontFamily: 'Space Mono',
+                         minWidth: 28 }}>{Math.round((p.drumVolume ?? 0.75) * 100)}%</span>
+        </div>
+      </div>
+
+      {/* ---- Presets -------------------------------------------------------- */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        {Object.keys(DRUM_PRESETS).map((name) => (
+          <button key={name} className="lif-drum-preset"
+            onClick={() => setDrumPattern({
+              ...drumPattern,
+              steps: DRUM_PRESETS[name].map((r) => [...r]),
+            })}>
+            {name}
+          </button>
+        ))}
+      </div>
+
+      {/* ---- Grille 16 pistes ---------------------------------------------- */}
+      <DrumMachine
+        pattern={drumPattern}
+        onChange={setDrumPattern}
+        playCol={playCol}
+        playing={playing}
+      />
+    </div>
+  );
+}
+
 // Exports globaux
-window.DrumPanel    = DrumPanel;
-window.DRUM_NAMES   = DRUM_NAMES;
-window.DRUM_HUE     = DRUM_HUE;
-window.DRUM_DEFAULT = DRUM_DEFAULT;
-window.DRUM_PRESETS = DRUM_PRESETS;
+window.DrumPanel     = DrumPanel;
+window.BatterieView  = BatterieView;
+window.DRUM_NAMES    = DRUM_NAMES;
+window.DRUM_HUE      = DRUM_HUE;
+window.DRUM_DEFAULT  = DRUM_DEFAULT;
+window.DRUM_PRESETS  = DRUM_PRESETS;

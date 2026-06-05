@@ -31,6 +31,7 @@ function makeAudio() {
     detune: 0, stereo: 0.4, muted: false,
     phaserOn: false, phaserDepth: 0.4,
     flangerOn: false, flangerDepth: 0.3,
+    drumVolume: 0.75,  // volume batterie indépendant du volume GoL
   };
 
   /* ---- Initialisation lazy du contexte (doit suivre un geste utilisateur) */
@@ -137,6 +138,9 @@ function makeAudio() {
     flangerWetGain.gain.value = fw;
     flangerDryGain.gain.value = 1 - fw * 0.4;
     flangerLfoGain.gain.value = state.flangerOn ? state.flangerDepth * 0.005 : 0;
+
+    // Volume batterie indépendant (bypass filtre/reverb GoL)
+    drumMaster.gain.value = state.muted ? 0 : state.drumVolume;
   }
 
   function setParams(p) { Object.assign(state, p); apply(); }
