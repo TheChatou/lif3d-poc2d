@@ -107,6 +107,10 @@ function App() {
   // Nécessaire pour le ping-pong, qui doit continuer sa direction entre les colonnes.
   const arpSubTickRef = useRef(0);
 
+  /* ---- Ancre de loop : grille capturée au moment où loopOn s'active ------ */
+  // 🎓 GoL est déterministe : rejouer depuis la même grille = rejouer la même séquence.
+  const loopAnchorRef = useRef(null);
+
   /* ---- Pattern de la boîte à rythmes ------------------------------------- */
   const [drumPattern, setDrumPattern] = useState(DRUM_DEFAULT);
   const drumPatternRef = useRef(drumPattern);
@@ -150,6 +154,15 @@ function App() {
     p.attack, p.decay, p.sustain, p.release, p.detune, p.stereo,
     p.phaserOn, p.phaserDepth, p.flangerOn, p.flangerDepth,
   ]);
+
+  /* ---- Ancre de loop : mise à jour quand loopOn change ------------------- */
+  useEffect(() => {
+    if (p.loopOn) {
+      loopAnchorRef.current = window.cloneGrid(gridRef.current);
+    } else {
+      loopAnchorRef.current = null;
+    }
+  }, [p.loopOn]);
 
   /* ---- Horloge musicale -------------------------------------------------- */
   useEffect(() => {
@@ -246,14 +259,13 @@ function App() {
           const sweepsPerEvol = Math.max(1, tRef.current.sweepsPerEvol ?? 1);
           const P2            = pRef.current;
 
-          // Loop : reset aléatoire après N mesures (seulement si loopOn)
-          if (P2.loopOn) {
+          // Loop : rejoue depuis l'ancre après N mesures (seulement si loopOn)
+          // 🎓 GoL est déterministe → repartir de la même grille rejoue exactement
+          // la même séquence sonore, sans re-randomiser.
+          if (P2.loopOn && loopAnchorRef.current) {
             const loopBars = window.LOOP_BARS[P2.loopLen];
             if (next % loopBars === 0) {
-              // Symétrie appliquée sur le tirage initial → uniquement ici
-              let ng = window.randomGrid(tRef.current.density);
-              if (P2.symmetry) ng = window.applySymmetry(ng, P2.symmetry);
-              setGrid(ng);
+              setGrid(window.cloneGrid(loopAnchorRef.current));
               setGen((x) => x + 1);
               return next;
             }
@@ -291,8 +303,10 @@ function App() {
     setGrid(ng);
     setGen((x) => x + 1);
     setMeasure(0);
-    stepRef.current    = 0;
+    stepRef.current       = 0;
     arpSubTickRef.current = 0;
+    // Nouvelle ancre de loop sur la nouvelle grille
+    loopAnchorRef.current = pRef.current.loopOn ? window.cloneGrid(ng) : null;
   }, []);
 
   const doClear = useCallback(() => {

@@ -181,15 +181,21 @@ function placeShape(name, cx, cy) {
 /* ---- Mapping musical : ligne -> hauteur MIDI ----------------------------- */
 
 // Construit le tableau des hauteurs MIDI pour count lignes de grille.
+// Couvre toujours exactement 3 octaves (36 demi-tons) quelle que soit la gamme,
+// puis distribue count notes régulièrement dans cette plage.
 function buildPitches(tonicIndex, scaleIv, count) {
   const base = 48 + tonicIndex;  // C3 = 48
-  const L    = scaleIv.length;
-  const out  = [];
-  for (let i = 0; i < count; i++) {
-    const oct = Math.floor(i / L);
-    out.push(base + scaleIv[i % L] + 12 * oct);
+  const SPAN = 36;               // 3 octaves fixes
+  const all  = [];
+  // 🎓 On collecte toutes les notes de la gamme dans la plage [base, base+SPAN]
+  for (let p = base; p <= base + SPAN; p++) {
+    if (scaleIv.includes(((p - base) % 12 + 12) % 12)) all.push(p);
   }
-  return out;  // ascendant, du grave à l'aigu
+  if (all.length === 0) return Array(count).fill(base);
+  // Distribution uniforme : count points répartis sur all.length pitches disponibles
+  return Array.from({ length: count }, (_, i) =>
+    all[Math.round(i * (all.length - 1) / Math.max(count - 1, 1))],
+  );
 }
 
 // row 0 = haut de la grille (aigu) ; row 15 = bas (grave).
