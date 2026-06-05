@@ -15,16 +15,30 @@ Doc technique complète : `docs/LIF2D_CONTEXT_CLAUDECODE.md`
 
 ## Matériel
 
-| Composant | Modèle | Interface |
+### À moi (perso)
+| Composant | Modèle | Notes |
 |---|---|---|
-| MCU | ESP32-D (1 seul) | — |
+| MCU | ESP32-D | DAC GPIO 25/26 — config.h ok |
 | Matrice LED | WS2812B 16×16 flexible | 1 GPIO (FastLED) |
-| Ampli audio | PAM8403 classe D stéréo | PWM ou DAC |
-| HP | 2× 4Ω 3W 28mm | — |
-| Encodeurs | EC11 rotatifs crantés | 2 pins + 1 btn chacun |
+| Ampli audio | PAM8403 HW-894 BT 5.0 | 5W+5W @ 4Ω — LINE IN 3.3V compatible DAC ESP32 |
+| HP | 2× 28mm 4Ω 3W | Confirmé 4Ω |
+| Hall sensors | US5881 ×10 | Réservés LIF3D |
+| Aimants | NdFeB N35 5×2mm ×10 | Réservés LIF3D |
+| Alimentation | 12V/2A BF-1220 | 24W max → FastLED.setBrightness(128) obligatoire |
+| Ampli I²S | MAX98357A | Réservé LIF3D |
 
-**Composants en transit AliExpress** (pas encore reçus au 11 avril 2026) :
-WS2812B 16×16, PAM8403, HP 28mm, Hall sensors (US5881/A3144E), aimants N35.
+### Du lab (école)
+| Composant | Modèle | Notes |
+|---|---|---|
+| Buck converter | LM2596S ajustable | 12V→5V/3A — régler à 5V avec multimètre |
+
+### À commander
+| Composant | Notes |
+|---|---|
+| Potentiomètres rotatifs ×4 | Volume, Luminosité, Timbre, Règles |
+| Encodeurs EC11 ×2 | BPM, Gamme |
+| Boutons poussoir ×2 | Play/Pause, Reset |
+| Potentiomètres linéaires ×2 | Luminosité fine, Morph règles |
 
 ---
 
@@ -42,11 +56,15 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **Mozzi ^2.0.0** — synthèse audio
 
 ### Contraintes importantes
+- **MCU : ESP32-D** (ESP32-WROOM-32 ou similaire) — a 2 DAC hardware (GPIO 25/26) ✅
 - FastLED : utiliser `FASTLED_ESP32_I2S true` pour éviter conflit WiFi
-- FastLED : pin data sur GPIO sans restriction (éviter 0, 2, 15)
-- Mozzi : vérifier compatibilité ESP32-D (plus stable que sur S3)
+- FastLED : pin data GPIO_NUM_48 proposé ; éviter GPIO 0, 1, 2
+- **FastLED.setBrightness(128) max** — alimentation 12V/2A = 24W, matrice à fond tire >3A @ 5V
+- Mozzi + FastLED → cœurs FreeRTOS séparés OBLIGATOIRE (conflit d'interruptions sinon)
 - Encodeurs EC11 : debounce obligatoire (100nF ou logiciel), utiliser `attachInterrupt`
 - Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` ou bitfield `uint16_t[16]`
+- ADC ESP32-S3 : éviter GPIO 0, 1 au boot ; préférer GPIO 4-10
+- PAM8403 HW-894 : entrée 3.3V logique ou via condensateur liaison AC 100µF
 
 ---
 
@@ -76,12 +94,26 @@ docs/
 - **Cellule vivante** à colonne courante × ligne Y = note jouée
 - 1 génération GoL = 1 mesure ou ½ mesure selon BPM
 
-### Gammes disponibles
-```c
-int SCALE_PENTA[]  = {0,2,4,7,9,12,14,16,19,21,24};
-int SCALE_MINOR[]  = {0,2,3,5,7,8,10,12,14,15,17,19};
-int SCALE_MAJOR[]  = {0,2,4,5,7,9,11,12,14,16,17,19};
-int SCALE_DORIAN[] = {0,2,3,5,7,9,10,12,14,15,17,19};
+### Gammes disponibles (validées Python)
+```python
+# ← PRIORITAIRE : Japonaise / Hirajoshi en La
+SCALE_JAPONAISE    = [0, 1, 5, 7, 8, 12, 13, 17, 19, 20, 24]
+# 5 notes sparse = parfait avec densité GoL 4.4%, évite les clusters dissonants
+
+SCALE_PENTA        = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]
+SCALE_PENTA_MINOR  = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24]
+SCALE_LYDIEN       = [0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19]
+SCALE_MIXOLYDIEN   = [0, 2, 4, 5, 7, 9, 10, 12, 14, 16, 17, 19]
+SCALE_PHRYGIEN_DOM = [0, 1, 4, 5, 7, 8, 10, 12, 13, 16, 17, 19]
+```
+
+### Paramètres sonores validés (Python → à porter en Mozzi)
+```
+attack   : 15ms
+decay    : 4.0 (exponentiel)
+duration : 350ms
+volume   : 0.45
+harmoniques : 0.88 × fond + 0.08 × 2e + 0.03 × 3e + 0.01 × 4e  (cloche de cristal)
 ```
 
 ### Règle GoL recommandée
@@ -123,14 +155,21 @@ Autres disponibles : B5S45 (Coral), B4S5 (Builder), B5S5 (Sym), B36S23 (Highlife
 - [x] Visualiseur Web POV interactif (`pov_volumetrique_principe.html`)
 - [x] `platformio.ini` configuré (FastLED + Mozzi)
 - [x] Spécification complète rédigée (`docs/LIF2D_CONTEXT_CLAUDECODE.md`)
+- [x] `include/config.h` — constantes + pins GPIO (280 lignes)
+- [x] `src/gol.cpp` + `src/gol.h` — moteur GoL 2D (229 lignes)
+- [x] Simulateur Python (`simulator/sim.py` v4) avec audio .wav + filtre biquad
+- [x] Gammes musicales validées à l'écoute (Japonaise prioritaire)
+- [x] Paramètres sonores validés (cloche de cristal 15ms attack, 350ms decay)
+- [x] Hardware reçu : WS2812B, PAM8403 HW-894, HP 28mm ×2, alim 12V/2A
 
 ### À faire (ordre prioritaire)
-- [ ] `include/config.h` — constantes + pins GPIO
-- [ ] `src/gol.cpp` — moteur GoL 2D
-- [ ] `src/leds.cpp` — rendu WS2812B
-- [ ] `src/controls.cpp` — encodeurs + ADC
-- [ ] `src/audio.cpp` — séquenceur Mozzi
-- [ ] `src/main.cpp` — assemblage FreeRTOS
+- [ ] **Commander buck converter 12V→5V + contrôleurs physiques**
+- [ ] `src/main.cpp` — test LED statique (first light !)
+- [ ] `src/leds.cpp` — rendu WS2812B via FastLED
+- [ ] `src/controls.cpp` — encodeurs (interruptions) + ADC potars
+- [ ] `src/audio.cpp` — séquenceur Mozzi piloté par GoL
+- [ ] `src/main.cpp` final — assemblage FreeRTOS 2 cœurs
+- [ ] Tests sur breadboard
 
 ---
 
