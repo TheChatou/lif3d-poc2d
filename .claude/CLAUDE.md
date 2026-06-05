@@ -182,6 +182,14 @@ Autres disponibles : B5S45 (Coral), B4S5 (Builder), B5S5 (Sym), B36S23 (Highlife
 - Mettre à jour la mémoire projet (auto-memory) à chaque jalon important
 - Travailler en français avec Felix
 
+### Analyses, comptes-rendus et rapports
+
+Quand Felix demande une analyse, un compte-rendu, un bilan, une comparaison ou tout document de réflexion :
+- **Toujours écrire le résultat dans un fichier `.md`** dans le dossier `docs/analyses/`
+- Nommer le fichier avec la date et un slug court : `YYYYMMDD_sujet.md`
+- Annoncer dans le CLI le chemin du fichier créé, pas le contenu complet
+- Ne jamais sortir un long document directement dans le terminal
+
 ### Pédagogie — priorité absolue
 
 **Ce projet est avant tout un projet d'apprentissage.** Felix est un maker qui apprend en fabriquant des objets cool et beaux. Il a peu d'expérience en embarqué C/C++.

@@ -5,6 +5,22 @@
 
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
+/* ---- Pattern de batterie par défaut -------------------------------------- */
+// 🎓 Un beat 4/4 classique pour démarrer : kick sur les temps 1 et 3,
+// snare sur les temps 2 et 4, hi-hat en croches (toutes les 2 doubles-croches).
+const DRUM_DEFAULT = {
+  steps: [
+    [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0].map(Boolean), // Kick
+    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0].map(Boolean), // Snare
+    [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0].map(Boolean), // Hat
+    Array(16).fill(false),                               // Clap
+    Array(16).fill(false),                               // Tom
+  ],
+  vols:  [0.85, 0.72, 0.48, 0.60, 0.65],
+  mutes: [false, false, false, false, false],
+  swing: 0,
+};
+
 /* ---- Valeurs par défaut de tous les paramètres --------------------------- */
 const DEFAULT = {
   bpm:         116,
@@ -90,6 +106,11 @@ function App() {
   /* ---- Ref arpégiateur : compteur de sous-ticks cumulé par colonne ------ */
   // Nécessaire pour le ping-pong, qui doit continuer sa direction entre les colonnes.
   const arpSubTickRef = useRef(0);
+
+  /* ---- Pattern de la boîte à rythmes ------------------------------------- */
+  const [drumPattern, setDrumPattern] = useState(DRUM_DEFAULT);
+  const drumPatternRef = useRef(drumPattern);
+  drumPatternRef.current = drumPattern;
 
   /* ---- Moteur audio (singleton) ----------------------------------------- */
   const audio = useRef(null);
@@ -194,6 +215,22 @@ function App() {
           }
         }
       }
+
+      // ---- Batterie (drum machine) ----------------------------------------
+      // 🎓 On lit le pattern de la ref (pas du state) pour éviter de
+      // recréer le setInterval à chaque changement de pattern.
+      const dp    = drumPatternRef.current;
+      const actxD = audio.current.getCtx();
+      const nowD  = actxD ? actxD.currentTime : 0;
+      // 🎓 Swing : les pas impairs (off-beats) sont retardés proportionnellement.
+      // Ex: swing 50% → les doubles-croches impaires arrivent plus tard,
+      // donnant le feel "shuffle" ou "groove" caractéristique.
+      const swingOff = (col % 2 === 1) ? dp.swing * (sixteenth / 1000) * 0.32 : 0;
+      window.DRUM_NAMES.forEach((name, track) => {
+        if (!dp.mutes[track] && dp.steps[track] && dp.steps[track][col]) {
+          audio.current.triggerDrum(name, nowD + swingOff, dp.vols[track]);
+        }
+      });
 
       // Indicateur "live" (haut-parleur)
       if (any) {
@@ -392,6 +429,14 @@ function App() {
             : <ExpertView  ctx={viewCtx} />}
         </div>
       </div>
+
+      {/* Boîte à rythmes (drawer bas, indépendant des vues) */}
+      <window.DrumPanel
+        pattern={drumPattern}
+        onChange={setDrumPattern}
+        playCol={playCol}
+        playing={playing}
+      />
 
       {/* Panneau Tweaks (paramètres de rendu & simulation) */}
       <TweaksPanel title="LIF2D Tweaks">

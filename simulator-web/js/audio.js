@@ -16,6 +16,11 @@ function makeAudio() {
   let phaserFilters, phaserLfoGain;
   let flangerDelay, flangerLfoGain, flangerWetGain, flangerDryGain;
 
+  // 🎓 drumMaster : gain dédié aux percussions.
+  // Les drums court-circuitent le filtre/reverb (trop de reverb tue le punch)
+  // mais passent quand même par master pour respecter le volume global.
+  let drumMaster;
+
   let voices = 0;
   const MAXVOICES = 16;
 
@@ -37,6 +42,11 @@ function makeAudio() {
     // --- Maître
     master = ctx.createGain();
     master.connect(ctx.destination);
+
+    // --- Drums : bypass filtre/reverb, directement sur master
+    drumMaster = ctx.createGain();
+    drumMaster.gain.value = 1.0;
+    drumMaster.connect(master);
 
     // --- Filtre passe-bas global (reçoit toutes les voix)
     filter = ctx.createBiquadFilter();
@@ -267,7 +277,134 @@ function makeAudio() {
     };
   }
 
-  return { resume, trigger, setParams, getCtx, get state() { return state; } };
+  /* ---- Synthèse percussions (tout synthétisé, aucun sample) -------------- */
+
+  // 🎓 Kick : une sinusoïde avec une enveloppe de hauteur qui chute vite (150→38 Hz).
+  // Le "punch" vient d'un court transitoire haute-fréquence.
+  function drumKick(t, vel) {
+    const osc   = ctx.createOscillator();
+    const gain  = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.11);
+    gain.gain.setValueAtTime(vel * 0.95, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.48);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.52);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+
+    // Transitoire de click (attaque percutante)
+    const clk  = ctx.createOscillator();
+    const clkG = ctx.createGain();
+    clk.type = 'sine'; clk.frequency.setValueAtTime(700, t);
+    clk.frequency.exponentialRampToValueAtTime(120, t + 0.022);
+    clkG.gain.setValueAtTime(vel * 0.32, t);
+    clkG.gain.exponentialRampToValueAtTime(0.001, t + 0.022);
+    clk.connect(clkG); clkG.connect(drumMaster);
+    clk.start(t); clk.stop(t + 0.028);
+    clk.onended = () => { try { clk.disconnect(); clkG.disconnect(); } catch (_) {} };
+  }
+
+  // 🎓 Snare : ton triangle (corps) + bruit filtré (sifflement de caisse).
+  // C'est la combinaison des deux qui donne le son "claqué" caractéristique.
+  function drumSnare(t, vel) {
+    const osc  = ctx.createOscillator();
+    const oscG = ctx.createGain();
+    osc.type = 'triangle'; osc.frequency.value = 195;
+    oscG.gain.setValueAtTime(vel * 0.22, t);
+    oscG.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    osc.connect(oscG); oscG.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.18);
+    osc.onended = () => { try { osc.disconnect(); oscG.disconnect(); } catch (_) {} };
+
+    const N    = Math.round(ctx.sampleRate * 0.22);
+    const buf  = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    const src   = ctx.createBufferSource();
+    src.buffer  = buf;
+    const hp    = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1800; hp.Q.value = 0.5;
+    const noiseG = ctx.createGain();
+    noiseG.gain.setValueAtTime(vel * 0.42, t);
+    noiseG.gain.exponentialRampToValueAtTime(0.001, t + 0.19);
+    src.connect(hp); hp.connect(noiseG); noiseG.connect(drumMaster);
+    src.start(t); src.stop(t + 0.23);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); noiseG.disconnect(); } catch (_) {} };
+  }
+
+  // 🎓 Hi-hat fermé : bruit blanc très court filtré passe-haut.
+  // Seules les fréquences > 7 kHz passent — c'est le sifflement métallique.
+  function drumHat(t, vel) {
+    const N    = Math.round(ctx.sampleRate * 0.07);
+    const buf  = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp  = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 7200;
+    const bp  = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 9500; bp.Q.value = 0.8;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vel * 0.38, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    src.connect(hp); hp.connect(bp); bp.connect(gain); gain.connect(drumMaster);
+    src.start(t); src.stop(t + 0.08);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); bp.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // 🎓 Clap : 3 rafales de bruit décalées de ~11 ms.
+  // Cette stratification imite les mains décalées d'un vrai clap humain.
+  function drumClap(t, vel) {
+    for (let i = 0; i < 3; i++) {
+      const dt   = i * 0.011;
+      const N    = Math.round(ctx.sampleRate * 0.018);
+      const buf  = ctx.createBuffer(1, N, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let j = 0; j < N; j++) data[j] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp  = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 980 + i * 280; bp.Q.value = 1.1;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(vel * 0.38, t + dt);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.048);
+      src.connect(bp); bp.connect(gain); gain.connect(drumMaster);
+      src.start(t + dt); src.stop(t + dt + 0.06);
+      src.onended = () => { try { src.disconnect(); bp.disconnect(); gain.disconnect(); } catch (_) {} };
+    }
+  }
+
+  // 🎓 Tom : comme le kick mais plus haut (~90 Hz) et decay plus long.
+  // Les toms graves simulent la fût de la batterie acoustique.
+  function drumTom(t, vel) {
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(92, t);
+    osc.frequency.exponentialRampToValueAtTime(50, t + 0.19);
+    gain.gain.setValueAtTime(vel * 0.75, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.42);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  /* ---- Déclenchement d'une percussion ------------------------------------- */
+  function triggerDrum(type, audioTime, vel = 1) {
+    if (state.muted) return;
+    ensure();
+    if (ctx.state === 'suspended') ctx.resume();
+    const t = audioTime !== undefined ? audioTime : ctx.currentTime;
+    if      (type === 'Kick')  drumKick(t, vel);
+    else if (type === 'Snare') drumSnare(t, vel);
+    else if (type === 'Hat')   drumHat(t, vel);
+    else if (type === 'Clap')  drumClap(t, vel);
+    else if (type === 'Tom')   drumTom(t, vel);
+  }
+
+  return { resume, trigger, triggerDrum, setParams, getCtx, get state() { return state; } };
 }
 
 window.makeAudio = makeAudio;
