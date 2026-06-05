@@ -5,22 +5,6 @@
 
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
-/* ---- Pattern de batterie par défaut -------------------------------------- */
-// 🎓 Un beat 4/4 classique pour démarrer : kick sur les temps 1 et 3,
-// snare sur les temps 2 et 4, hi-hat en croches (toutes les 2 doubles-croches).
-const DRUM_DEFAULT = {
-  steps: [
-    [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0].map(Boolean), // Kick
-    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0].map(Boolean), // Snare
-    [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0].map(Boolean), // Hat
-    Array(16).fill(false),                               // Clap
-    Array(16).fill(false),                               // Tom
-  ],
-  vols:  [0.85, 0.72, 0.48, 0.60, 0.65],
-  mutes: [false, false, false, false, false],
-  swing: 0,
-};
-
 /* ---- Valeurs par défaut de tous les paramètres --------------------------- */
 const DEFAULT = {
   bpm:         116,
@@ -111,10 +95,25 @@ function App() {
   // 🎓 GoL est déterministe : rejouer depuis la même grille = rejouer la même séquence.
   const loopAnchorRef = useRef(null);
 
-  /* ---- Pattern de la boîte à rythmes ------------------------------------- */
-  const [drumPattern, setDrumPattern] = useState(DRUM_DEFAULT);
+  /* ---- Pattern de la boîte à rythmes + mode Drum ------------------------- */
+  // window.DRUM_DEFAULT est défini dans drums.jsx (chargé avant app.jsx)
+  const [drumPattern, setDrumPattern] = useState(() => window.DRUM_DEFAULT);
   const drumPatternRef = useRef(drumPattern);
   drumPatternRef.current = drumPattern;
+
+  const [drumMode, setDrumMode] = useState(false);
+  const drumModeRef = useRef(false);
+  drumModeRef.current = drumMode;
+
+  /* ---- Peinture en mode Drum : toggle step (x=colonne, y=piste) ---------- */
+  const paintDrum = useCallback((x, y, erase) => {
+    setDrumPattern((dp) => ({
+      ...dp,
+      steps: dp.steps.map((row, t) =>
+        t === y ? row.map((v, s) => (s === x ? !erase : v)) : row
+      ),
+    }));
+  }, []);
 
   /* ---- Moteur audio (singleton) ----------------------------------------- */
   const audio = useRef(null);
@@ -271,9 +270,9 @@ function App() {
             }
           }
 
-          // Conway pur : une génération par N balayages, sans applySymmetry
-          // (la symétrie ne concerne que le dessin, pas les règles du jeu)
-          if (next % sweepsPerEvol === 0) {
+          // Conway pur : une génération par N balayages.
+          // 🎓 En mode Drum, GoL est gelé — seul le playhead avance.
+          if (next % sweepsPerEvol === 0 && !drumModeRef.current) {
             const rule = window.RULES[P2.ruleIdx];
             const ng   = window.step(gridRef.current, rule, P2.ageMax || 0);
             setGrid(ng);
@@ -417,6 +416,7 @@ function App() {
     live, saved, t, setTweak,
     togglePlay, doReset, doClear, doSave, doLoad,
     stampShape, paint, moveCursor,
+    drumMode, setDrumMode, drumPattern, paintDrum,
   };
 
   /* ---- Rendu ------------------------------------------------------------- */

@@ -1,14 +1,93 @@
 /* ==========================================================================
    LIF2D — Boîte à rythmes steampunk.
-   Panneau fixe en bas, 5 pistes × 16 pas, swing, mute/volume par piste.
-   La synthèse est dans audio.js (triggerDrum).
+   16 pistes × 16 pas, swing, mute/volume, 5 presets rythmiques.
+   Mode Drum : les pistes s'affichent aussi sur la matrice principale.
    ========================================================================== */
 
-// Noms, abréviations et couleurs accent de chaque piste
-const DRUM_NAMES = ['Kick', 'Snare', 'Hat', 'Clap', 'Tom'];
-const DRUM_ABBR  = ['K', 'S', 'H', 'C', 'T'];
-const DRUM_HUE   = ['#e07b2a', '#d4c44a', '#7ab8e0', '#c27ae0', '#7ae088'];
+// Noms, abréviations et couleurs des 16 pistes
+const DRUM_NAMES = [
+  'Kick', 'Snare', 'Hat', 'Hat ouvert', 'Clap',
+  'Tom H', 'Tom M', 'Tom L', 'Rim', 'Cowbell',
+  'Clave', 'Shaker', 'Maracas', 'Ride', 'Crash', 'Perc',
+];
+const DRUM_ABBR = [
+  'K', 'S', 'H', 'Ho', 'C',
+  'TH', 'TM', 'TL', 'Ri', 'Co',
+  'Cl', 'Sh', 'Ma', 'Rd', 'Cr', 'P',
+];
+// Couleurs accent (CSS color strings) par piste
+const DRUM_HUE = [
+  '#e07b2a', '#d4c44a', '#7ab8e0', '#5ba8d8', '#c27ae0',
+  '#e08a7a', '#e06a4a', '#c84a28', '#a0d88e', '#d4d480',
+  '#88d4b0', '#b8d480', '#80a8d4', '#a888d4', '#d488b8', '#d4a880',
+];
 
+/* ---- Helpers ------------------------------------------------------------ */
+const _b = (s) => s.split('').map((c) => c === '1');
+const _E = () => Array(16).fill(false);
+
+/* ---- Patterns de batterie (steps uniquement, appliqués sur le pattern) -- */
+const DRUM_PRESETS = {
+  'Vide':  Array(16).fill(null).map(_E),
+
+  // 🎓 4/4 classique : kick sur les temps 1 et 3, snare sur 2 et 4,
+  // hat en croches (toutes les 2 doubles-croches = 8 hits par mesure).
+  '4/4': [
+    _b('1000000010000000'), // Kick
+    _b('0000100000001000'), // Snare
+    _b('1010101010101010'), // Hat
+    _E(), _E(),             // Hat ouvert, Clap
+    _E(), _E(), _E(), _E(), _E(),
+    _E(), _E(), _E(), _E(), _E(), _E(),
+  ],
+
+  // 🎓 Trap : kick syncopé, hat en doubles-croches (hi-hat rapide), snare sur le 3.
+  'Trap': [
+    _b('1000100100000100'), // Kick syncopé
+    _b('0000000010000000'), // Snare sur le 3
+    _b('1111111111111111'), // Hat tout (doubles-croches)
+    _b('0000001000000010'), // Hat ouvert (off-beats)
+    _E(), _E(), _E(), _E(), _E(), _E(),
+    _E(), _E(), _E(), _E(), _E(), _E(),
+  ],
+
+  // 🎓 Afro : feel Afrobeat, clave son (3+3+2) sur la piste Clave (index 10).
+  // Le 3-2 son clave : positions 0, 3, 6, 10, 12 dans la mesure de 16.
+  'Afro': [
+    _b('1000100000101000'), // Kick
+    _b('0000100000001000'), // Snare
+    _b('1010101010101010'), // Hat en croches
+    _E(), _E(),
+    _E(), _E(), _E(), _E(), _E(),
+    _b('1001001000101000'), // Clave 3-2 son
+    _E(), _E(), _E(), _E(), _E(),
+  ],
+
+  // 🎓 Bossa nova : hat avec le pattern caractéristique 1-0-1-1-0-1-0-1 (×2).
+  'Bossa': [
+    _b('1000100000001000'), // Kick bossa
+    _b('0000000100000001'), // Snare léger (brushes)
+    _b('1011010110110101'), // Hat bossa pattern
+    _E(), _E(),
+    _E(), _E(), _E(), _E(), _E(),
+    _E(), _E(), _E(), _E(), _E(), _E(),
+  ],
+};
+
+/* ---- Pattern par défaut (16 pistes) ------------------------------------- */
+const DRUM_DEFAULT = {
+  steps: [
+    _b('1000000010000000'), // Kick
+    _b('0000100000001000'), // Snare
+    _b('1010101010101010'), // Hat
+    ...Array(13).fill(null).map(_E),
+  ],
+  vols:  [0.85, 0.72, 0.48, 0.55, 0.60, ...Array(11).fill(0.65)],
+  mutes: Array(16).fill(false),
+  swing: 0,
+};
+
+/* ---- CSS injecté (une seule fois) --------------------------------------- */
 const __DRUM_CSS = `
   /* ---- Panneau drawer (slide-up depuis le bas) --------------------------- */
   .lif-drum-panel {
@@ -22,38 +101,39 @@ const __DRUM_CSS = `
     transform: translateY(100%);
     transition: transform 0.28s cubic-bezier(.38,.12,.28,1);
     padding-bottom: env(safe-area-inset-bottom, 0);
+    max-height: 80vh; overflow-y: auto;
   }
   .lif-drum-panel.is-open { transform: translateY(0); }
 
   /* ---- En-tête du panneau ------------------------------------------------ */
   .lif-drum-hd {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 16px 7px;
+    padding: 7px 14px 6px;
     border-bottom: 1px solid rgba(255,255,255,.05);
+    position: sticky; top: 0; background: rgba(16,12,9,.98); z-index: 2;
   }
-  .lif-drum-hd-left { display: flex; align-items: center; gap: 14px; }
+  .lif-drum-hd-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .lif-drum-title {
-    font-family: 'Cinzel', serif; font-weight: 600; font-size: 12px;
+    font-family: 'Cinzel', serif; font-weight: 600; font-size: 11px;
     letter-spacing: .18em; text-transform: uppercase; color: var(--brass);
   }
   .lif-drum-close {
     appearance: none; border: 0; background: transparent;
     color: var(--text-dim); width: 26px; height: 26px;
     border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
+    flex-shrink: 0;
   }
   .lif-drum-close:hover { background: rgba(255,255,255,.08); color: var(--text); }
 
-  /* ---- Contrôles en-tête : swing ---------------------------------------- */
-  .lif-drum-swing-row {
-    display: flex; align-items: center; gap: 7px;
-  }
+  /* ---- Swing ------------------------------------------------------------ */
+  .lif-drum-swing-row { display: flex; align-items: center; gap: 7px; }
   .lif-drum-swing-lbl {
     font-family: 'Barlow Condensed', sans-serif; font-size: 10px;
     letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim);
   }
   .lif-drum-swing-slider {
     -webkit-appearance: none; appearance: none;
-    width: 72px; height: 3px; border-radius: 2px;
+    width: 64px; height: 3px; border-radius: 2px;
     background: rgba(255,255,255,.12); outline: none; cursor: pointer;
   }
   .lif-drum-swing-slider::-webkit-slider-thumb {
@@ -64,76 +144,77 @@ const __DRUM_CSS = `
   }
   .lif-drum-swing-val {
     font-family: 'Space Mono', monospace; font-size: 10px;
-    color: var(--brass); min-width: 28px;
+    color: var(--brass); min-width: 26px;
   }
+
+  /* ---- Presets ----------------------------------------------------------- */
+  .lif-drum-presets {
+    display: flex; gap: 5px; padding: 5px 14px 4px; flex-wrap: wrap;
+  }
+  .lif-drum-preset {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 5px; border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.05); color: var(--text-dim); cursor: pointer;
+    transition: color .12s, border-color .12s;
+  }
+  .lif-drum-preset:hover { color: var(--brass); border-color: rgba(201,164,76,.36); }
 
   /* ---- Grille des pistes ------------------------------------------------- */
-  .lif-drum-body { padding: 7px 14px 11px; display: flex; flex-direction: column; gap: 4px; }
+  .lif-drum-body { padding: 4px 14px 10px; display: flex; flex-direction: column; gap: 3px; }
+  .lif-drum-row  { display: flex; align-items: center; gap: 6px; }
 
-  .lif-drum-row { display: flex; align-items: center; gap: 7px; }
-
-  /* En-tête de rangée : mute + abréviation + volume */
   .lif-drum-row-head {
-    display: flex; align-items: center; gap: 5px;
-    width: 80px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 4px;
+    width: 72px; flex-shrink: 0;
   }
   .lif-drum-mute {
-    width: 20px; height: 20px; border-radius: 4px; flex-shrink: 0;
-    border: 1px solid rgba(255,255,255,.16);
-    background: rgba(255,255,255,.05);
-    color: var(--text-dim); font-size: 9px; font-weight: 700;
-    font-family: 'Barlow Condensed', sans-serif;
-    cursor: pointer; letter-spacing: .02em;
+    width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.05);
+    color: var(--text-dim); font-size: 8px; font-weight: 700;
+    font-family: 'Barlow Condensed', sans-serif; cursor: pointer;
     transition: background .12s, color .12s, border-color .12s;
-    line-height: 1; display: grid; place-items: center;
+    display: grid; place-items: center;
   }
   .lif-drum-mute.is-muted {
     background: rgba(217,83,79,.22); border-color: rgba(217,83,79,.5); color: #d9534f;
   }
   .lif-drum-abbr {
-    font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700;
-    letter-spacing: .04em; width: 14px; text-align: center; flex-shrink: 0;
+    font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700;
+    letter-spacing: .02em; width: 20px; text-align: center; flex-shrink: 0;
   }
   .lif-drum-vol {
     -webkit-appearance: none; appearance: none;
-    width: 34px; height: 3px; border-radius: 2px;
+    width: 28px; height: 3px; border-radius: 2px;
     background: rgba(255,255,255,.10); outline: none; cursor: pointer; flex-shrink: 0;
   }
   .lif-drum-vol::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%;
+    -webkit-appearance: none; width: 9px; height: 9px; border-radius: 50%;
     background: var(--steel-hi); box-shadow: 0 1px 2px rgba(0,0,0,.6); cursor: default;
   }
 
   /* ---- Grille des 16 pas ------------------------------------------------- */
-  .lif-drum-steps { display: flex; gap: 3px; flex: 1; }
-
-  /* 🎓 Séparateur tous les 4 pas = une noire. Marque les temps forts visuellement. */
-  .lif-drum-step { flex: 1; height: 26px; border-radius: 4px; border: none; cursor: pointer; }
-  .lif-drum-step.is-beat-start { margin-left: 4px; }
-
-  /* Pas inactif : enfoncé, sombre */
+  .lif-drum-steps { display: flex; gap: 2px; flex: 1; }
+  .lif-drum-step  { flex: 1; height: 20px; border-radius: 3px; border: none; cursor: pointer; }
+  .lif-drum-step.is-beat-start { margin-left: 3px; }
   .lif-drum-step {
     background: rgba(255,255,255,.07);
     box-shadow: inset 0 1px 1px rgba(255,255,255,.05), inset 0 -1px 2px rgba(0,0,0,.5);
     transition: background .09s, box-shadow .09s;
   }
-  /* Pas actif : éclairé de la couleur de la piste */
   .lif-drum-step.is-on {
     background: var(--step-color, var(--brass));
-    box-shadow:
-      0 0 7px var(--step-color, var(--brass)),
-      inset 0 1px 1px rgba(255,255,255,.35),
-      inset 0 -1px 2px rgba(0,0,0,.2);
+    box-shadow: 0 0 6px var(--step-color, var(--brass)),
+                inset 0 1px 1px rgba(255,255,255,.35),
+                inset 0 -1px 2px rgba(0,0,0,.2);
   }
-  /* Tête de lecture (colonne courante) */
   .lif-drum-step.is-playing {
     box-shadow: inset 0 0 0 1.5px rgba(255,240,180,.45), inset 0 0 6px rgba(255,240,180,.12);
   }
   .lif-drum-step.is-on.is-playing {
-    box-shadow:
-      0 0 11px var(--step-color, var(--brass)),
-      0 0 3px rgba(255,255,255,.5),
-      inset 0 1px 1px rgba(255,255,255,.5);
+    box-shadow: 0 0 10px var(--step-color, var(--brass)),
+                0 0 3px rgba(255,255,255,.5),
+                inset 0 1px 1px rgba(255,255,255,.5);
   }
 
   /* ---- Bouton d'ouverture fixe (bas-gauche) ------------------------------ */
@@ -154,7 +235,7 @@ const __DRUM_CSS = `
   }
 `;
 
-/* ---- Grille de la boîte à rythmes --------------------------------------- */
+/* ---- Grille des pistes (16 rangées compactes) --------------------------- */
 function DrumMachine({ pattern, onChange, playCol, playing }) {
   const toggleStep = (track, step) => {
     const steps = pattern.steps.map((row, t) =>
@@ -162,12 +243,10 @@ function DrumMachine({ pattern, onChange, playCol, playing }) {
     );
     onChange({ ...pattern, steps });
   };
-
   const toggleMute = (track) => {
     const mutes = pattern.mutes.map((m, t) => (t === track ? !m : m));
     onChange({ ...pattern, mutes });
   };
-
   const setVol = (track, vol) => {
     const vols = pattern.vols.map((v, t) => (t === track ? vol : v));
     onChange({ ...pattern, vols });
@@ -177,7 +256,6 @@ function DrumMachine({ pattern, onChange, playCol, playing }) {
     <div className="lif-drum-body">
       {DRUM_NAMES.map((name, track) => (
         <div key={name} className="lif-drum-row">
-          {/* En-tête de piste */}
           <div className="lif-drum-row-head">
             <button
               className={`lif-drum-mute ${pattern.mutes[track] ? 'is-muted' : ''}`}
@@ -186,12 +264,10 @@ function DrumMachine({ pattern, onChange, playCol, playing }) {
               {DRUM_ABBR[track]}
             </span>
             <input type="range" min="0" max="1" step="0.01"
-              value={pattern.vols[track]}
+              value={pattern.vols[track] ?? 0.65}
               className="lif-drum-vol"
               onChange={(e) => setVol(track, parseFloat(e.target.value))} />
           </div>
-
-          {/* 16 boutons-pas */}
           <div className="lif-drum-steps">
             {pattern.steps[track].map((on, step) => (
               <button
@@ -213,28 +289,29 @@ function DrumMachine({ pattern, onChange, playCol, playing }) {
   );
 }
 
-/* ---- Wrapper collapsible (drawer bas pleine largeur) --------------------- */
+/* ---- Wrapper collapsible + sélecteur de presets ------------------------- */
 function DrumPanel({ pattern, onChange, playCol, playing }) {
   const [open, setOpen] = React.useState(false);
+
+  const applyPreset = (name) => {
+    onChange({ ...pattern, steps: DRUM_PRESETS[name].map((row) => [...row]) });
+  };
 
   return (
     <>
       <style>{__DRUM_CSS}</style>
 
-      {/* Bouton flottant bas-gauche */}
       <button
         className={`lif-drum-open-btn ${open ? 'is-active' : ''}`}
         onClick={() => setOpen((v) => !v)}>
         Batterie ♩
       </button>
 
-      {/* Panneau drawer */}
       <div className={`lif-drum-panel ${open ? 'is-open' : ''}`}>
+        {/* En-tête : titre + swing + fermer */}
         <div className="lif-drum-hd">
           <div className="lif-drum-hd-left">
             <span className="lif-drum-title">Batterie</span>
-            {/* 🎓 Swing : décale les pas impairs (off-beats) en avant,
-                créant le feeling "groove" du jazz ou du hip-hop. */}
             <div className="lif-drum-swing-row">
               <span className="lif-drum-swing-lbl">Swing</span>
               <input type="range" min="0" max="1" step="0.01"
@@ -245,6 +322,14 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
             </div>
           </div>
           <button className="lif-drum-close" onClick={() => setOpen(false)}>✕</button>
+        </div>
+
+        {/* Presets */}
+        <div className="lif-drum-presets">
+          {Object.keys(DRUM_PRESETS).map((name) => (
+            <button key={name} className="lif-drum-preset"
+              onClick={() => applyPreset(name)}>{name}</button>
+          ))}
         </div>
 
         <DrumMachine
@@ -258,6 +343,9 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
   );
 }
 
-// Export global
-window.DrumPanel  = DrumPanel;
-window.DRUM_NAMES = DRUM_NAMES;
+// Exports globaux
+window.DrumPanel    = DrumPanel;
+window.DRUM_NAMES   = DRUM_NAMES;
+window.DRUM_HUE     = DRUM_HUE;
+window.DRUM_DEFAULT = DRUM_DEFAULT;
+window.DRUM_PRESETS = DRUM_PRESETS;

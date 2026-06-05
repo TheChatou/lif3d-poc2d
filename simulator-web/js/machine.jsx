@@ -9,6 +9,7 @@ function MachineView({ ctx }) {
     penState, setPenState, live,
     togglePlay, doReset, doClear, doSave, doLoad,
     stampShape, paint, moveCursor, t,
+    drumMode, setDrumMode, drumPattern, paintDrum,
   } = ctx;
 
   const pop = window.gridPopulation(grid);
@@ -26,7 +27,8 @@ function MachineView({ ctx }) {
         brightness={p.brightness} bloom={t.bloom} warm={t.ledWarm}
         playCol={playing ? playCol : -1} playing={playing}
         cursor={cursor} drawMode={penState !== 0}
-        onPaint={paint} />
+        onPaint={drumMode ? paintDrum : paint}
+        drumMode={drumMode} drumPattern={drumPattern} />
       <div className="lif-rivet tl" />
       <div className="lif-rivet tr" />
       <div className="lif-rivet bl" />
@@ -74,6 +76,12 @@ function MachineView({ ctx }) {
         <button className="lif-pill" onClick={doClear}>Clear</button>
         <button className="lif-pill" onClick={doSave}>Save</button>
         <button className="lif-pill" onClick={doLoad}>Load</button>
+        {/* 🎓 Mode Drum : la matrice affiche le pattern rythmique et GoL est gelé */}
+        <button
+          className={`lif-pill ${drumMode ? 'is-active' : ''}`}
+          onClick={() => setDrumMode((v) => !v)}>
+          {drumMode ? 'DRUM' : 'GoL'}
+        </button>
       </div>
     </div>
   );

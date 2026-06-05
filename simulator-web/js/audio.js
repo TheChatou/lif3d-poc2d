@@ -391,17 +391,209 @@ function makeAudio() {
     osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
   }
 
+  // Hat ouvert : comme hat fermé, mais decay plus long (0.26 s vs 0.06 s)
+  function drumHatOpen(t, vel) {
+    const N = Math.round(ctx.sampleRate * 0.28);
+    const buf = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 6200;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vel * 0.34, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    src.connect(hp); hp.connect(gain); gain.connect(drumMaster);
+    src.start(t); src.stop(t + 0.30);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Tom haut : descend de 165 → 88 Hz
+  function drumTomH(t, vel) {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(165, t);
+    osc.frequency.exponentialRampToValueAtTime(88, t + 0.14);
+    gain.gain.setValueAtTime(vel * 0.78, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.32);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Tom médium : descend de 120 → 62 Hz
+  function drumTomM(t, vel) {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(62, t + 0.17);
+    gain.gain.setValueAtTime(vel * 0.80, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.34);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.38);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Tom bas : encore plus grave que drumTom (75 → 38 Hz)
+  function drumTomL(t, vel) {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(75, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.22);
+    gain.gain.setValueAtTime(vel * 0.88, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.50);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Rimshot : clic boisé (carré court + bruit bandpassé)
+  function drumRim(t, vel) {
+    const osc = ctx.createOscillator(); const g = ctx.createGain();
+    osc.type = 'square'; osc.frequency.value = 1500;
+    g.gain.setValueAtTime(vel * 0.16, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+    osc.connect(g); g.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.04);
+    osc.onended = () => { try { osc.disconnect(); g.disconnect(); } catch (_) {} };
+
+    const N = Math.round(ctx.sampleRate * 0.014);
+    const buf = ctx.createBuffer(1, N, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 2;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(vel * 0.26, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.014);
+    src.connect(bp); bp.connect(ng); ng.connect(drumMaster);
+    src.start(t); src.stop(t + 0.018);
+    src.onended = () => { try { src.disconnect(); bp.disconnect(); ng.disconnect(); } catch (_) {} };
+  }
+
+  // 🎓 Cowbell : 2 oscillateurs carrés légèrement désaccordés → timbre métallique
+  function drumCowbell(t, vel) {
+    [562, 848].forEach((freq) => {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.type = 'square'; osc.frequency.value = freq;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 400;
+      gain.gain.setValueAtTime(vel * 0.11, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.52);
+      osc.connect(hp); hp.connect(gain); gain.connect(drumMaster);
+      osc.start(t); osc.stop(t + 0.56);
+      osc.onended = () => { try { osc.disconnect(); hp.disconnect(); gain.disconnect(); } catch (_) {} };
+    });
+  }
+
+  // Clave : impulsion sinusoïdale ultra-courte (wood-block synthétisé)
+  function drumClave(t, vel) {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.value = 2500;
+    gain.gain.setValueAtTime(vel * 0.28, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.026);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.030);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Shaker : rafale de bruit haute-fréquence (55 ms)
+  function drumShaker(t, vel) {
+    const N = Math.round(ctx.sampleRate * 0.055);
+    const buf = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5500;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 8000; bp.Q.value = 1.2;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vel * 0.28, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    src.connect(hp); hp.connect(bp); bp.connect(gain); gain.connect(drumMaster);
+    src.start(t); src.stop(t + 0.06);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); bp.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Maracas : plus doux et plus court que le shaker
+  function drumMaracas(t, vel) {
+    const N = Math.round(ctx.sampleRate * 0.032);
+    const buf = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = (Math.random() * 2 - 1) * 0.7;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6500;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vel * 0.20, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.030);
+    src.connect(hp); hp.connect(gain); gain.connect(drumMaster);
+    src.start(t); src.stop(t + 0.036);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Ride : cymbal métallique à decay long (0.55 s)
+  function drumRide(t, vel) {
+    const N = Math.round(ctx.sampleRate * 0.60);
+    const buf = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5000;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 7000; bp.Q.value = 0.6;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vel * 0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    src.connect(hp); hp.connect(bp); bp.connect(gain); gain.connect(drumMaster);
+    src.start(t); src.stop(t + 0.62);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); bp.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Crash : bruit large spectre avec fondu lent (0.8 s)
+  function drumCrash(t, vel) {
+    const N = Math.round(ctx.sampleRate * 0.85);
+    const buf = ctx.createBuffer(1, N, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3500;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vel * 0.44, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.80);
+    src.connect(hp); hp.connect(gain); gain.connect(drumMaster);
+    src.start(t); src.stop(t + 0.88);
+    src.onended = () => { try { src.disconnect(); hp.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
+  // Perc libre : impact générique medium-court
+  function drumPerc(t, vel) {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(110, t + 0.08);
+    gain.gain.setValueAtTime(vel * 0.55, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    osc.connect(gain); gain.connect(drumMaster);
+    osc.start(t); osc.stop(t + 0.15);
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch (_) {} };
+  }
+
   /* ---- Déclenchement d'une percussion ------------------------------------- */
   function triggerDrum(type, audioTime, vel = 1) {
     if (state.muted) return;
     ensure();
     if (ctx.state === 'suspended') ctx.resume();
     const t = audioTime !== undefined ? audioTime : ctx.currentTime;
-    if      (type === 'Kick')  drumKick(t, vel);
-    else if (type === 'Snare') drumSnare(t, vel);
-    else if (type === 'Hat')   drumHat(t, vel);
-    else if (type === 'Clap')  drumClap(t, vel);
-    else if (type === 'Tom')   drumTom(t, vel);
+    const DISPATCH = {
+      'Kick':       drumKick,   'Snare':     drumSnare,
+      'Hat':        drumHat,    'Hat ouvert':drumHatOpen,
+      'Clap':       drumClap,   'Tom H':     drumTomH,
+      'Tom M':      drumTomM,   'Tom L':     drumTomL,
+      'Rim':        drumRim,    'Cowbell':   drumCowbell,
+      'Clave':      drumClave,  'Shaker':    drumShaker,
+      'Maracas':    drumMaracas,'Ride':      drumRide,
+      'Crash':      drumCrash,  'Perc':      drumPerc,
+      'Tom':        drumTom,    // rétro-compat
+    };
+    const fn = DISPATCH[type];
+    if (fn) fn(t, vel);
   }
 
   return { resume, trigger, triggerDrum, setParams, getCtx, get state() { return state; } };
