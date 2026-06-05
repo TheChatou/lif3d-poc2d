@@ -217,6 +217,23 @@ const __DRUM_CSS = `
                 inset 0 1px 1px rgba(255,255,255,.5);
   }
 
+  /* ---- Wrap matrice en vue Batterie (override sizing fixe de .lif-matrix) */
+  .lif-bat-mwrap {
+    height: 100%;
+    aspect-ratio: 1 / 1;
+    min-width: 0;
+    flex-shrink: 0;
+    box-sizing: border-box;
+  }
+  .lif-bat-mwrap .lif-matrix-bezel {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+  }
+  .lif-bat-mwrap .lif-matrix {
+    width: 100% !important;
+  }
+
   /* ---- Bouton d'ouverture fixe (bas-gauche) ------------------------------ */
   .lif-drum-open-btn {
     position: fixed; bottom: 16px; left: 16px; z-index: 200;
@@ -347,7 +364,7 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
 function BatterieView({ ctx }) {
   const { drumPattern, setDrumPattern, paintDrum, playing, playCol, p, set } = ctx;
 
-  const sl = {  // style de base commun aux sliders inline
+  const sl = {
     WebkitAppearance: 'none', appearance: 'none',
     height: 3, borderRadius: 2, outline: 'none', cursor: 'pointer',
     background: 'rgba(255,255,255,.12)',
@@ -358,16 +375,20 @@ function BatterieView({ ctx }) {
   const setVol = (track, vol) =>
     setDrumPattern({ ...drumPattern, vols: drumPattern.vols.map((v, t) => t === track ? vol : v) });
 
-  // Taille carrée de la matrice en px — ajuster si besoin
-  const SZ = 380;
-
+  // Occupe tout l'espace disponible du stage (100vw − 48px × 100vh − 84px)
   return (
-    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12,
-                  maxWidth: SZ + 120, margin: '0 auto' }}>
+    <div style={{
+      width: 'calc(100vw - 48px)',
+      height: 'calc(100vh - 84px)',
+      display: 'flex', flexDirection: 'column',
+      gap: 8, padding: '8px 12px', boxSizing: 'border-box',
+    }}>
 
       {/* ---- En-tête : titre + swing + vol drums + presets ------------------ */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-                    borderBottom: '1px solid rgba(255,255,255,.06)', paddingBottom: 10 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', flexShrink: 0,
+        borderBottom: '1px solid rgba(255,255,255,.06)', paddingBottom: 8,
+      }}>
         <span style={{ fontFamily: 'Cinzel', fontSize: 12, letterSpacing: '.2em',
                        color: 'var(--brass)', textTransform: 'uppercase' }}>Batterie</span>
 
@@ -391,7 +412,6 @@ function BatterieView({ ctx }) {
             {Math.round((p.drumVolume ?? 0.75) * 100)}%</span>
         </div>
 
-        {/* Presets */}
         {Object.keys(DRUM_PRESETS).map((name) => (
           <button key={name} className="lif-drum-preset"
             onClick={() => setDrumPattern({ ...drumPattern, steps: DRUM_PRESETS[name].map((r) => [...r]) })}>
@@ -400,43 +420,43 @@ function BatterieView({ ctx }) {
         ))}
       </div>
 
-      {/* ---- Zone principale : labels pistes (gauche) + matrice (droite) ---- */}
-      <div style={{ display: 'flex', gap: 0, height: SZ }}>
+      {/* ---- Zone principale : labels pistes (gauche) + matrice carrée (droite) */}
+      {/* flex: 1 + min-height: 0 → la zone remplit l'espace restant sans déborder */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
 
-        {/* Labels pistes : 16 lignes alignées sur la hauteur de la matrice */}
-        <div style={{ display: 'grid', gridTemplateRows: 'repeat(16, 1fr)',
-                      width: 96, height: SZ, flexShrink: 0 }}>
+        {/* Labels pistes : CSS grid 16 lignes, hauteur = 100% de la zone */}
+        <div style={{
+          display: 'grid', gridTemplateRows: 'repeat(16, 1fr)',
+          width: 88, flexShrink: 0,
+        }}>
           {DRUM_NAMES.map((name, i) => (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', gap: 3,
-              padding: '0 5px', borderBottom: '1px solid rgba(255,255,255,.03)',
+              padding: '0 4px', borderBottom: '1px solid rgba(255,255,255,.03)',
             }}>
-              {/* Bouton mute */}
               <button onClick={() => toggleMute(i)} style={{
-                width: 15, height: 15, borderRadius: 3, flexShrink: 0,
+                width: 14, height: 14, borderRadius: 3, flexShrink: 0,
                 border: `1px solid ${drumPattern.mutes[i] ? 'rgba(217,83,79,.6)' : 'rgba(255,255,255,.15)'}`,
                 background: drumPattern.mutes[i] ? 'rgba(217,83,79,.25)' : 'rgba(255,255,255,.05)',
                 color: drumPattern.mutes[i] ? '#d9534f' : 'var(--text-dim)',
                 fontSize: 7, cursor: 'pointer', display: 'grid', placeItems: 'center',
               }}>M</button>
 
-              {/* Abréviation colorée */}
               <span style={{ color: DRUM_HUE[i], fontSize: 9, fontFamily: 'Space Mono',
-                             fontWeight: 700, width: 17, flexShrink: 0, lineHeight: 1 }}>
+                             fontWeight: 700, width: 16, flexShrink: 0, lineHeight: 1 }}>
                 {DRUM_ABBR[i]}
               </span>
 
-              {/* Slider volume */}
               <input type="range" min="0" max="1" step="0.01"
                 value={drumPattern.vols[i] ?? 0.65}
-                style={{ ...sl, width: 30, flexShrink: 0 }}
+                style={{ ...sl, width: 28, flexShrink: 0 }}
                 onChange={(e) => setVol(i, parseFloat(e.target.value))} />
             </div>
           ))}
         </div>
 
-        {/* Matrice 16×16 en mode Drum — clic pour poser/effacer les pas */}
-        <div style={{ width: SZ, height: SZ, flexShrink: 0 }}>
+        {/* Matrice : carrée, prend toute la hauteur disponible via aspect-ratio */}
+        <div className="lif-bat-mwrap">
           <window.Matrix
             grid={window.emptyGrid()} gen={0} pitches={[]}
             brightness={p.brightness} bloom={1} warm={false}
