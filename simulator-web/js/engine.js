@@ -31,7 +31,7 @@ const SCALES = [
 ];
 
 const NOTE_NAMES   = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const PRESETS      = ['Libre', 'Piano', 'Bell', 'Orgue', 'Pad', 'Basse', 'Marimba'];
+const PRESETS      = ['Libre', 'Piano', 'Cristal', 'Orgue', 'Pad', 'Basse', 'Marimba'];
 const WAVES        = ['Sine', 'Carré', 'Scie', 'Triangle', 'FM', 'FM2', 'FM3', 'Karplus-Strong', 'Sample (.wav)'];
 const SYMMETRIES   = ['Aucune', 'Axiale X', 'Axiale Y', 'Co-axiale', 'Centrale'];
 
@@ -41,8 +41,8 @@ const ARP_MODES = [
   'Down',      // 1 — descendant (aigu → grave), cycle
   'Random',    // 2 — aléatoire, re-tiré à chaque colonne
   'Ping-pong', // 3 — aller-retour
-  'Tierces',   // 4 — note courante + note 2 positions au-dessus (intervalle de tierce)
-  'Quintes',   // 5 — note courante + note 4 positions au-dessus (intervalle de quinte)
+  'Accord 3ce',// 4 — accord : note de référence (la plus grave allumée) + sa tierce, si présente
+  'Accord 5te',// 5 — accord : note de référence (la plus grave allumée) + sa quinte, si présente
   'Accord',    // 6 — toutes les notes de la colonne jouées simultanément (comme le sim Python)
 ];
 
@@ -121,23 +121,28 @@ function step(g, rule, maxAge) {
 
 function applySymmetry(g, mode) {
   if (mode === 0) return g;
-  const out = cloneGrid(g);
-  const M   = GRID - 1;
-  const set = (x, y, v) => { if (v && !out[y][x]) out[y][x] = v; };
+  // 🎓 On RECOPIE une moitié vers son image miroir (écrasement), comme le
+  // sim Python (_apply_sym) — surtout PAS de fusion OR : fusionner doublerait
+  // (voire quadruplerait) la densité du semis aléatoire, ce qui sur-encombre
+  // la grille et la fait s'éteindre dès la génération suivante.
+  const out  = cloneGrid(g);
+  const M    = GRID - 1;
+  const half = GRID >> 1;
 
-  for (let y = 0; y < GRID; y++) {
-    for (let x = 0; x < GRID; x++) {
-      const v = g[y][x];
-      if (!v) continue;
-      if      (mode === 1) set(M - x, y,     v);   // Axiale X
-      else if (mode === 2) set(x,     M - y, v);   // Axiale Y
-      else if (mode === 3) {                        // Co-axiale
-        set(M - x, y,     v);
-        set(x,     M - y, v);
-        set(M - x, M - y, v);
-      }
-      else if (mode === 4) set(M - x, M - y, v);   // Centrale (point)
-    }
+  if (mode === 1 || mode === 3) {                 // Axiale X (et Co-axiale)
+    for (let y = 0; y < GRID; y++)
+      for (let x = 0; x < half; x++)
+        out[y][M - x] = out[y][x];
+  }
+  if (mode === 2 || mode === 3) {                 // Axiale Y (et Co-axiale)
+    for (let y = 0; y < half; y++)
+      for (let x = 0; x < GRID; x++)
+        out[M - y][x] = out[y][x];
+  }
+  if (mode === 4) {                               // Centrale (rotation 180°)
+    for (let y = 0; y < half; y++)
+      for (let x = 0; x < GRID; x++)
+        out[M - y][M - x] = out[y][x];
   }
   return out;
 }
@@ -146,10 +151,21 @@ function applySymmetry(g, mode) {
 
 const SHAPES = {
   Vide:   [],
-  Glider: [[1,0],[2,1],[0,2],[1,2],[2,2]],
   Blinker:[[0,0],[1,0],[2,0]],
+  // 🎓 Oscillateurs symétriques classiques — comme le Pulsar, ils clignotent
+  // sur place (période fixe) plutôt que de se déplacer. Vérifiés par
+  // simulation : période exacte 2 pour les deux.
+  Beacon: [[0,0],[1,0],[0,1],[3,2],[2,3],[3,3]],   // 2 blocs en diagonale qui se touchent/séparent
+  Toad:   [[1,0],[2,0],[3,0],[0,1],[1,1],[2,1]],   // barre de 6 cellules à symétrie centrale
   Block:  [[0,0],[1,0],[0,1],[1,1]],
   'R-pentomino': [[1,0],[2,0],[0,1],[1,1],[1,2]],
+  // 🎓 Vaisseau spatial le plus imposant (13 cellules, 7×5) — bien plus visible
+  // qu'un Glider classique (5 cellules). Vérifié : vaisseau stable, période 4.
+  Vaisseau: [[3,0],[4,0],[1,1],[6,1],[0,2],[0,3],[6,3],[0,4],[1,4],[2,4],[3,4],[4,4],[5,4]],
+  // 🎓 Méthuselah façon "feu d'artifice" : 7 cellules qui explosent en un pic
+  // de 64 cellules vivantes (¼ de la grille !) avant de retomber en activité
+  // oscillante permanente — vérifié par simulation sur 400 générations.
+  Chaos: [[0,0],[1,0],[2,0],[0,1],[2,1],[0,2],[2,2]],
   Pulsar: (() => {
     const pts  = [];
     const arms = [2,3,4,8,9,10];
@@ -158,7 +174,10 @@ const SHAPES = {
     return pts;
   })(),
 };
-const SHAPE_NAMES = ['Vide','Glider','Blinker','Pulsar','Block','R-pentomino'];
+const SHAPE_NAMES = [
+  'Vide', 'Vaisseau', 'Chaos', 'R-pentomino',
+  'Blinker', 'Toad', 'Beacon', 'Pulsar', 'Block',
+];
 
 // Estampille une forme centrée sur (cx, cy) dans une nouvelle grille.
 function placeShape(name, cx, cy) {
@@ -184,8 +203,8 @@ function placeShape(name, cx, cy) {
 // Construit le tableau des hauteurs MIDI pour count lignes de grille.
 // Couvre toujours exactement 3 octaves (36 demi-tons) quelle que soit la gamme,
 // puis distribue count notes régulièrement dans cette plage.
-function buildPitches(tonicIndex, scaleIv, count) {
-  const base = 48 + tonicIndex;  // C3 = 48
+function buildPitches(tonicIndex, scaleIv, count, octave = 0) {
+  const base = 48 + tonicIndex + octave * 12;  // C3 = 48, décalé par octave (-2..+2)
   const SPAN = 36;               // 3 octaves fixes
   const all  = [];
   // 🎓 On collecte toutes les notes de la gamme dans la plage [base, base+SPAN]
@@ -215,21 +234,32 @@ function noteHue(midi) {
 }
 
 /* ---- Presets de synthèse (wave index + ADSR) ----------------------------- */
+// 🎓 Repensés pour s'éloigner du son "synthé jouet années 70" : on choisit des
+// formes d'onde plus riches (FM, Karplus-Strong, Scie) et des enveloppes plus
+// naturelles (attaques/chutes moins carrées) plutôt que du Sine/Carré nu.
 const PRESET_MAP = {
-  Libre:   { w: 0, a:   6, d:  60, s: 0.50, r: 120 },
-  Piano:   { w: 4, a:   2, d: 120, s: 0.25, r: 180 },
-  Bell:    { w: 5, a:   1, d: 200, s: 0.00, r: 200 },
-  Orgue:   { w: 0, a:   8, d:  10, s: 0.95, r:  60 },
-  Pad:     { w: 0, a: 120, d: 160, s: 0.80, r: 200 },
-  Basse:   { w: 2, a:   4, d:  90, s: 0.60, r:  90 },
-  Marimba: { w: 3, a:   1, d: 110, s: 0.00, r:  90 },
+  Libre:   { w: 0, a:   6, d:  60,  s: 0.50, r: 120 },
+  Piano:   { w: 4, a:   2, d: 140,  s: 0.20, r: 220 },
+  // Cristal : timbre "cloche de cristal" validé au Python (attaque 15ms,
+  // decay 350ms, sustain nul) — superposition d'harmoniques via FM2.
+  Cristal: { w: 5, a:  15, d: 350,  s: 0.00, r: 250 },
+  // Orgue : FM3 apporte des harmoniques façon tirettes d'orgue, plus riche
+  // qu'une simple sinusoïde plate.
+  Orgue:   { w: 6, a:   8, d:  10,  s: 0.92, r:  80 },
+  Pad:     { w: 3, a: 180, d: 220,  s: 0.75, r: 320 },
+  // Basse : Scie (harmoniques pleines) → grain analogique, plus de corps
+  // qu'une sinusoïde ou un carré nus.
+  Basse:   { w: 2, a:   3, d: 110,  s: 0.55, r:  70 },
+  // Marimba : Karplus-Strong → corps boisé/résonant naturel d'un mailloche,
+  // bien plus crédible qu'une triangle synthétique.
+  Marimba: { w: 7, a:   1, d: 140,  s: 0.00, r:  90 },
 };
 
 /* ---- Arpégiateur : helpers de calcul ------------------------------------- */
 
 // Retourne le(s) index de note(s) à jouer au sous-tick subTickIdx.
 // N  = nombre de notes dans la colonne.
-// Renvoie un tableau d'indices (1 note pour Up/Down/Random/Ping-pong, 2 pour Tierces/Quintes).
+// Renvoie un tableau d'indices (1 note pour Up/Down/Random/Ping-pong, toutes pour les modes accord).
 function arpNoteIndices(subTickIdx, N, modeIdx) {
   if (N === 0) return [];
 
@@ -247,19 +277,9 @@ function arpNoteIndices(subTickIdx, N, modeIdx) {
     main = subTickIdx % N;
   }
 
-  if (modeIdx === 4) {
-    // Tierces : note[main] + note[(main+2)%N]
-    const second = (main + 2) % N;
-    return second !== main ? [main, second] : [main];
-  }
-  if (modeIdx === 5) {
-    // Quintes : note[main] + note[(main+4)%N]
-    const second = (main + 4) % N;
-    return second !== main ? [main, second] : [main];
-  }
-  if (modeIdx === 6) {
-    // 🎓 Accord : toutes les notes en même temps → son polyphonique/pad.
-    // Identique au mode "Chord" du sim Python.
+  if (modeIdx === 4 || modeIdx === 5 || modeIdx === 6) {
+    // 🎓 Accords (3ce / 5te / plein) : la séquence est déjà réduite aux notes
+    // de l'accord par buildColArpSeq → on les joue toutes ensemble (polyphonique).
     return Array.from({ length: N }, (_, i) => i);
   }
 
@@ -276,6 +296,24 @@ function buildColArpSeq(g, col, pitches, modeIdx) {
   }
   if (!notes.length) return [];
 
+  if (modeIdx === 4 || modeIdx === 5) {
+    // 🎓 Accords Tierce/Quinte : on prend la note de référence — la plus grave
+    // allumée sur ce temps — puis on cherche SA tierce ou SA quinte parmi les
+    // autres notes allumées de la même colonne (pas dans toute la gamme : ça
+    // évite la cacophonie). Si l'intervalle n'est pas présent, la référence
+    // joue seule plutôt que de forcer une note absente.
+    notes.sort((a, b) => a.midi - b.midi);
+    const ref = notes[0];
+    // Tierce : majeure (4) puis mineure (3) ; Quinte : juste (7) puis altérées (6, 8)
+    const targetIv = modeIdx === 4 ? [4, 3] : [7, 6, 8];
+    let chordNote = null;
+    for (const iv of targetIv) {
+      chordNote = notes.find((n) => n !== ref && ((n.midi - ref.midi) % 12 + 12) % 12 === iv);
+      if (chordNote) break;
+    }
+    return chordNote ? [ref, chordNote] : [ref];
+  }
+
   if      (modeIdx === 0) notes.sort((a, b) => a.midi - b.midi);  // Up
   else if (modeIdx === 1) notes.sort((a, b) => b.midi - a.midi);  // Down
   else if (modeIdx === 2) {                                          // Random
@@ -285,7 +323,7 @@ function buildColArpSeq(g, col, pitches, modeIdx) {
     }
   }
   else if (modeIdx === 3) notes.sort((a, b) => a.midi - b.midi);  // Ping-pong (trié, index géré par arpNoteIdx)
-  // modeIdx===4 (Accord) : ordre indifférent, toutes jouées en même temps
+  // modeIdx===6 (Accord plein) : ordre indifférent, toutes jouées en même temps
 
   return notes;
 }

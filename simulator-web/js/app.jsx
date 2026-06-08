@@ -7,7 +7,7 @@ const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
 /* ---- Valeurs par défaut de tous les paramètres --------------------------- */
 const DEFAULT = {
-  bpm:         116,
+  bpm:         60,
   brightness:  0.85,
   volume:      0.72,
   cutoff:      0.68,
@@ -18,7 +18,7 @@ const DEFAULT = {
   tonic:       9,        // A
   presetIdx:   0,        // Libre
   waveIdx:     0,        // Sine
-  sampleRef:   'C4',
+  octave:      0,        // décalage d'octave : -2..+2 (0 = plage de base C3)
   symmetry:    0,
   loopLen:     2,        // ×8 mesures — laisse le temps aux patterns de se développer
   shape:       'Vide',
@@ -27,6 +27,7 @@ const DEFAULT = {
   arpSpeed:    1,      // index dans ARP_DIV   (subdivision : ×2 par défaut)
   arpGroove:   false,  // swing sur les sous-ticks impairs
   loopOn:      false,  // Loop désactivé par défaut → Conway pur, pas de reset auto
+  loopPingPong: false, // Lecture du loop : cyclique (→) ou aller-retour (↔)
   attack:      6,
   decay:       60,
   sustain:     0.5,
@@ -47,6 +48,8 @@ const DEFAULT = {
 const TWEAK_DEFAULTS = {
   density:       0.35,   // ~90 cellules vivantes — Conway a besoin de masse critique
   sweepsPerEvol: 1,      // 1 = chaque balayage déclenche une évolution (synchronisation exacte)
+  hardcoreOn:    true,   // Mode Hardcore activé par défaut : évolution au tempo plutôt qu'au balayage
+  hardcoreDiv:   1,      // 1 temps / évolution = le plus chaotique (une évolution à CHAQUE temps)
   bloom:         1.0,
   ledWarm:       true,
 };
@@ -95,9 +98,25 @@ function App() {
   // Nécessaire pour le ping-pong, qui doit continuer sa direction entre les colonnes.
   const arpSubTickRef = useRef(0);
 
-  /* ---- Ancre de loop : grille capturée au moment où loopOn s'active ------ */
-  // 🎓 GoL est déterministe : rejouer depuis la même grille = rejouer la même séquence.
-  const loopAnchorRef = useRef(null);
+  /* ---- Loop : historique glissant + frames figées --------------------------
+     🎓 Comme le sim Python : on garde en mémoire les dernières générations
+     jouées (historyRef), et à l'activation du Loop on fige les N dernières
+     (loopFramesRef) — on capture ainsi un instant déjà entendu, potentiellement
+     le plus intéressant, plutôt que de parier sur l'évolution future. Lecture
+     ensuite cyclique (→) ou aller-retour/ping-pong (↔, comme le bouton "<>"
+     du sim Python). */
+  const MAX_LOOP_BARS  = Math.max(...window.LOOP_BARS);
+  const historyRef     = useRef([]);   // grilles récentes (la plus ancienne en tête)
+  const loopFramesRef  = useRef([]);   // frames figées en lecture, vide = loop inactif
+  const loopPosRef     = useRef(0);    // position de lecture courante dans loopFramesRef
+  const [loopFrameCount, setLoopFrameCount] = useState(0);
+  const [loopPlayPos,    setLoopPlayPos]    = useState(0);
+
+  const pushHistory = useCallback((g) => {
+    const h = historyRef.current;
+    h.push(window.cloneGrid(g));
+    if (h.length > MAX_LOOP_BARS) h.shift();
+  }, [MAX_LOOP_BARS]);
 
   /* ---- Pattern de la boîte à rythmes + mode Drum ------------------------- */
   // window.DRUM_DEFAULT est défini dans drums.jsx (chargé avant app.jsx)
@@ -134,8 +153,8 @@ function App() {
 
   /* ---- Calcul des hauteurs MIDI (mémoïsé) -------------------------------- */
   const pitches = useMemo(
-    () => window.buildPitches(p.tonic, window.SCALES[p.scaleIdx].iv, window.GRID),
-    [p.tonic, p.scaleIdx],
+    () => window.buildPitches(p.tonic, window.SCALES[p.scaleIdx].iv, window.GRID, p.octave),
+    [p.tonic, p.scaleIdx, p.octave],
   );
   const pitchesRef = useRef(pitches); pitchesRef.current = pitches;
 
@@ -153,6 +172,7 @@ function App() {
       release:     p.release,
       detune:      p.detune,
       stereo:      p.stereo,
+      bpm:         p.bpm,
       phaserOn:    p.phaserOn,
       phaserDepth: p.phaserDepth,
       flangerOn:   p.flangerOn,
@@ -161,16 +181,28 @@ function App() {
     });
   }, [
     p.volume, p.cutoff, p.resonance, p.reverb, p.waveIdx,
-    p.attack, p.decay, p.sustain, p.release, p.detune, p.stereo,
+    p.attack, p.decay, p.sustain, p.release, p.detune, p.stereo, p.bpm,
     p.phaserOn, p.phaserDepth, p.flangerOn, p.flangerDepth, p.drumVolume,
   ]);
 
-  /* ---- Ancre de loop : mise à jour quand loopOn change ------------------- */
+  /* ---- Activation du Loop : on fige les N dernières générations vécues --- */
+  // 🎓 loopLen ne re-fige pas un loop déjà actif (comme le sim Python) — il
+  // ne prend effet qu'à la prochaine activation, pour ne pas casser un groove
+  // en cours d'écoute.
   useEffect(() => {
     if (p.loopOn) {
-      loopAnchorRef.current = window.cloneGrid(gridRef.current);
+      const loopBars = window.LOOP_BARS[p.loopLen] ?? 4;
+      const buf      = historyRef.current;
+      const frames   = buf.length
+        ? buf.slice(-loopBars)
+        : [window.cloneGrid(gridRef.current)];   // pas d'historique → fige l'instant présent
+      loopFramesRef.current = frames;
+      loopPosRef.current    = 0;
+      setLoopFrameCount(frames.length);
+      setLoopPlayPos(0);
     } else {
-      loopAnchorRef.current = null;
+      loopFramesRef.current = [];
+      setLoopFrameCount(0);
     }
   }, [p.loopOn]);
 
@@ -231,8 +263,9 @@ function App() {
               const t = nowAudio + i * subSec + (i % 2 === 1 ? grooveShift : 0);
               indices.forEach((noteIdx) => {
                 const { midi, age } = seq[noteIdx];
+                const ageTargetName = window.AGE_TARGETS[P.ageTarget];
                 const vel = P.ageTarget === 1 ? Math.min(0.4 + age * 0.15, 1) : 0.75;
-                audio.current.trigger(window.midiToFreq(midi), vel, 0, t);
+                audio.current.trigger(window.midiToFreq(midi), vel, 0, t, age, ageTargetName);
               });
             }
             // Avancer le compteur global de sous-ticks (continuité cross-colonnes)
@@ -245,9 +278,10 @@ function App() {
             const age = g[y][col];
             if (age > 0 && (!P.muteAge || age < P.muteAge)) {
               const midi = window.rowToPitch(y, pp);
+              const ageTargetName = window.AGE_TARGETS[P.ageTarget];
               const vel  = P.ageTarget === 1 ? Math.min(0.4 + age * 0.18, 1) : 0.85;
               const pan  = (col / (window.GRID - 1)) * 2 - 1;
-              audio.current.trigger(window.midiToFreq(midi), vel, pan);
+              audio.current.trigger(window.midiToFreq(midi), vel, pan, undefined, age, ageTargetName);
               any = true;
             }
           }
@@ -260,32 +294,64 @@ function App() {
           liveTO.current = setTimeout(() => setLive(false), 110);
         }
 
-        // Évolution Conway + gestion des mesures (déclenchés à chaque col 0)
+        // ---- Loop : relit des frames déjà vécues, figées à l'activation ---
+        const loopFrames = loopFramesRef.current;
+        const loopActive = P.loopOn && loopFrames.length > 0;
+
+        // ---- Mode Hardcore : évolution au tempo, pas au balayage ----------
+        // 🎓 Inversion du rapport "Balayages / évolution" : au lieu d'attendre
+        // N balayages complets (16 temps chacun) pour évoluer, le GoL avance
+        // toutes les hardcoreDiv temps. hardcoreDiv=16 ≈ mode normal (1 évolution
+        // par sweep) ; hardcoreDiv=1 = une évolution à CHAQUE temps (chaotique).
+        // Suspendu pendant la lecture d'un loop figé (on rejoue, on n'évolue plus).
+        const hardcoreOn  = tRef.current.hardcoreOn;
+        const hardcoreDiv = Math.max(1, Math.min(16, tRef.current.hardcoreDiv ?? 16));
+        const tempsCount  = Math.floor(st / 2) + 1;
+
+        if (!loopActive && hardcoreOn && tempsCount % hardcoreDiv === 0 && !drumModeRef.current) {
+          const rule = window.RULES[P.ruleIdx];
+          const ng   = window.step(gridRef.current, rule, P.ageMax || 0);
+          setGrid(ng);
+          setGen((x) => x + 1);
+          pushHistory(ng);
+        }
+
+        // Gestion des mesures + évolution / lecture loop (déclenchés à chaque col 0)
         if (st > 0 && col === 0) {
           setMeasure((mm) => {
-            const next          = mm + 1;
-            const sweepsPerEvol = Math.max(1, tRef.current.sweepsPerEvol ?? 1);
-            const P2            = pRef.current;
+            const next = mm + 1;
+            const P2   = pRef.current;
 
-            // Loop : rejoue depuis l'ancre après N mesures (seulement si loopOn)
-            // 🎓 GoL est déterministe → repartir de la même grille rejoue exactement
-            // la même séquence sonore, sans re-randomiser.
-            if (P2.loopOn && loopAnchorRef.current) {
-              const loopBars = window.LOOP_BARS[P2.loopLen];
-              if (next % loopBars === 0) {
-                setGrid(window.cloneGrid(loopAnchorRef.current));
-                setGen((x) => x + 1);
-                return next;
+            if (loopActive) {
+              // 🎓 Lecture des frames figées : cyclique (→) ou aller-retour /
+              // ping-pong (↔, comme le bouton "<>" du sim Python). Le ping-pong
+              // relit la séquence à l'endroit puis à l'envers sans répéter les
+              // extrémités : 0,1,2,…,n-1,n-2,…,1,0,1,2…
+              const n = loopFrames.length;
+              let idx;
+              if (P2.loopPingPong && n > 1) {
+                const seq = 2 * n - 2;
+                const pos = loopPosRef.current % seq;
+                idx = pos < n ? pos : seq - pos;
+              } else {
+                idx = loopPosRef.current % n;
               }
+              setGrid(window.cloneGrid(loopFrames[idx]));
+              setGen((x) => x + 1);
+              loopPosRef.current += 1;
+              setLoopPlayPos(idx);
+              return next;
             }
 
-            // Conway pur : une génération par N balayages.
+            // Conway pur (mode normal uniquement) : une génération par N balayages.
             // 🎓 En mode Drum, GoL est gelé — seul le playhead avance.
-            if (next % sweepsPerEvol === 0 && !drumModeRef.current) {
+            const sweepsPerEvol = Math.max(1, tRef.current.sweepsPerEvol ?? 1);
+            if (!hardcoreOn && next % sweepsPerEvol === 0 && !drumModeRef.current) {
               const rule = window.RULES[P2.ruleIdx];
               const ng   = window.step(gridRef.current, rule, P2.ageMax || 0);
               setGrid(ng);
               setGen((x) => x + 1);
+              pushHistory(ng);
             }
 
             return next;
@@ -321,6 +387,17 @@ function App() {
     setPlaying((v) => !v);
   }, []);
 
+  // 🎓 Une nouvelle grille rend l'historique et un éventuel loop figé obsolètes
+  // (comme le sim Python, qui désactive le Loop au reset/clear) — on les purge.
+  const resetLoopState = useCallback(() => {
+    historyRef.current    = [];
+    loopFramesRef.current = [];
+    loopPosRef.current    = 0;
+    setLoopFrameCount(0);
+    setLoopPlayPos(0);
+    if (pRef.current.loopOn) set('loopOn', false);
+  }, [set]);
+
   const doReset = useCallback(() => {
     let ng = window.randomGrid(tRef.current.density);
     // Symétrie appliquée sur le tirage initial (dessin / reset uniquement)
@@ -330,14 +407,14 @@ function App() {
     setMeasure(0);
     stepRef.current       = 0;
     arpSubTickRef.current = 0;
-    // Nouvelle ancre de loop sur la nouvelle grille
-    loopAnchorRef.current = pRef.current.loopOn ? window.cloneGrid(ng) : null;
-  }, []);
+    resetLoopState();
+  }, [resetLoopState]);
 
   const doClear = useCallback(() => {
     setGrid(window.emptyGrid());
     setGen((x) => x + 1);
-  }, []);
+    resetLoopState();
+  }, [resetLoopState]);
 
   const doSave = useCallback(() => {
     setSaved(window.cloneGrid(gridRef.current));
@@ -438,6 +515,7 @@ function App() {
   const viewCtx = {
     p, set, grid, gen, pitches,
     playing, playCol, drumStep, measure,
+    loopFrameCount, loopPlayPos,
     cursor, penState, setPenState,
     live, saved, t, setTweak,
     togglePlay, doReset, doClear, doSave, doLoad,
@@ -496,6 +574,16 @@ function App() {
           label="Balayages / évolution"
           value={t.sweepsPerEvol ?? 1} min={1} max={8} step={1}
           onChange={(v) => setTweak('sweepsPerEvol', v)} />
+        <TweakToggle
+          label="Mode Hardcore GoL"
+          value={t.hardcoreOn ?? false}
+          onChange={(v) => setTweak('hardcoreOn', v)} />
+        {(t.hardcoreOn ?? false) && (
+          <TweakSlider
+            label="Temps / évolution"
+            value={t.hardcoreDiv ?? 16} min={1} max={16} step={1}
+            onChange={(v) => setTweak('hardcoreDiv', v)} />
+        )}
         <TweakSection label="Rendu LEDs" />
         <TweakRadio
           label="Couleur"

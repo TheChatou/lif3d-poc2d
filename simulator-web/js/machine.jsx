@@ -191,8 +191,8 @@ function MachineView({ ctx }) {
       <div className="lif-frame">
         {/* Coins : 4 potentiomètres */}
         {cornerPot('gtl', 'BPM',
-          pot(40, 300, p.bpm), p.bpm,
-          (x) => set('bpm', fromPot(40, 300, x)))}
+          pot(20, 140, p.bpm), p.bpm,
+          (x) => set('bpm', fromPot(20, 140, x)))}
         {cornerPot('gtr', 'Lumino',
           pot(0.1, 1, p.brightness), `${Math.round(p.brightness * 100)}%`,
           (x) => set('brightness', 0.1 + x * 0.9))}

@@ -125,19 +125,12 @@ function Card({ title, num, span, children }) {
   );
 }
 
-// Notes de référence pour le sample (C2–B6)
-const SAMPLE_NOTES = (() => {
-  const out  = [];
-  const n    = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  for (let o = 2; o <= 6; o++) n.forEach((x) => out.push(x + o));
-  return out;
-})();
-
 /* ---- Vue Expert ---------------------------------------------------------- */
 function ExpertView({ ctx }) {
   const {
     p, set, playing, measure, grid, gen, pitches, playCol, t,
     togglePlay, doReset, doClear, doSave, doLoad,
+    loopFrameCount, loopPlayPos,
   } = ctx;
   const pop      = window.gridPopulation(grid);
   const loopBars = window.LOOP_BARS[p.loopLen] ?? 4;
@@ -184,7 +177,7 @@ function ExpertView({ ctx }) {
         {/* 01 — Séquenceur */}
         <Card title="Séquenceur" num="01">
           <SRow k="BPM" v={p.bpm}
-            value={p.bpm} min={40} max={300}
+            value={p.bpm} min={20} max={140}
             onChange={(v) => set('bpm', v)} />
           <SRow k="Luminosité" v={`${Math.round(p.brightness * 100)}%`}
             value={Math.round(p.brightness * 100)} min={10} max={100}
@@ -193,10 +186,19 @@ function ExpertView({ ctx }) {
             <IToggle on={p.loopOn} onChange={(v) => set('loopOn', v)} />
           </XRow>
           {p.loopOn && (
-            <XRow k="Durée loop">
-              <Seg options={window.LOOP_LENGTHS} value={p.loopLen}
-                onChange={(v) => set('loopLen', v)} />
-            </XRow>
+            <React.Fragment>
+              <XRow k="Durée loop">
+                <Seg options={window.LOOP_LENGTHS} value={p.loopLen}
+                  onChange={(v) => set('loopLen', v)} />
+              </XRow>
+              <XRow k="Lecture">
+                <Seg options={['→ Boucle', '↔ Aller-retour']}
+                  value={p.loopPingPong ? 1 : 0}
+                  onChange={(v) => set('loopPingPong', v === 1)} />
+              </XRow>
+              <XRow k="Frame figée"
+                v={loopFrameCount ? `${(loopPlayPos % loopFrameCount) + 1} / ${loopFrameCount}` : '—'} />
+            </React.Fragment>
           )}
         </Card>
 
@@ -261,10 +263,10 @@ function ExpertView({ ctx }) {
             <Sel options={window.WAVES} value={p.waveIdx}
               onChange={(v) => set('waveIdx', v)} />
           </XRow>
-          <XRow k="Réf. sample">
-            <Sel options={SAMPLE_NOTES}
-              value={Math.max(0, SAMPLE_NOTES.indexOf(p.sampleRef))}
-              onChange={(v) => set('sampleRef', SAMPLE_NOTES[v])} />
+          <XRow k="Octave">
+            <Seg options={['-2', '-1', '0', '+1', '+2']}
+              value={p.octave + 2}
+              onChange={(v) => set('octave', v - 2)} />
           </XRow>
         </Card>
 
@@ -303,9 +305,10 @@ function ExpertView({ ctx }) {
           <SRow k="Age max"  v={`${p.ageMax} gén.`}
             value={p.ageMax}  min={1} max={8}
             onChange={(v) => set('ageMax', v)} />
-          <SRow k="Mute ≥"   v={`${p.muteAge} gén.`}
-            value={p.muteAge} min={1} max={8}
-            onChange={(v) => set('muteAge', v)} />
+          <SRow k="Mute ≥"   v={p.muteAge ? `${p.muteAge} gén.` : '∞'}
+            value={p.muteAge || 9} min={1} max={9}
+            onChange={(v) => set('muteAge', v >= 9 ? 0 : v)} />
+          {/* 🎓 muteAge=0 → jamais muté (cf. condition `!P.muteAge` côté trigger) */}
         </Card>
 
         {/* 08 — Espace sonore */}

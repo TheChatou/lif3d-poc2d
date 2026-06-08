@@ -13,8 +13,8 @@ function makeAudio() {
   // Nœuds déclarés ici pour être accessibles dans apply()
   let master, filter;
   let reverbDelay, reverbFbGain, reverbWet, reverbDry;
-  let phaserFilters, phaserLfoGain;
-  let flangerDelay, flangerLfoGain, flangerWetGain, flangerDryGain;
+  let phaserFilters, phaserLfo, phaserLfoGain;
+  let flangerDelay, flangerLfo, flangerLfoGain, flangerWetGain, flangerDryGain;
 
   // 🎓 drumMaster : gain dédié aux percussions.
   // Les drums court-circuitent le filtre/reverb (trop de reverb tue le punch)
@@ -29,6 +29,7 @@ function makeAudio() {
     wave: 'Sine',
     attack: 6, decay: 60, sustain: 0.5, release: 120,
     detune: 0, stereo: 0.4, muted: false,
+    bpm: 60,
     phaserOn: false, phaserDepth: 0.4,
     flangerOn: false, flangerDepth: 0.3,
     drumVolume: 0.75,  // volume batterie indépendant du volume GoL
@@ -82,10 +83,9 @@ function makeAudio() {
     phaserFilters.forEach((f) => { prev.connect(f); prev = f; });
     const phaserOut = phaserFilters[NUM_AP - 1];
 
-    // LFO phaser
-    const phaserLfo = ctx.createOscillator();
+    // LFO phaser — fréquence asservie au BPM, calculée dans apply()
+    phaserLfo = ctx.createOscillator();
     phaserLfo.type = 'sine';
-    phaserLfo.frequency.value = 0.45;
     phaserLfoGain = ctx.createGain();
     phaserLfo.connect(phaserLfoGain);
     phaserFilters.forEach((f) => phaserLfoGain.connect(f.frequency));
@@ -97,10 +97,9 @@ function makeAudio() {
     flangerDelay   = ctx.createDelay(0.025);
     flangerDelay.delayTime.value = 0.007;
 
-    // LFO flanger
-    const flangerLfo = ctx.createOscillator();
+    // LFO flanger — fréquence asservie au BPM, calculée dans apply()
+    flangerLfo = ctx.createOscillator();
     flangerLfo.type = 'sine';
-    flangerLfo.frequency.value = 0.38;
     flangerLfoGain = ctx.createGain();
     flangerLfo.connect(flangerLfoGain);
     flangerLfoGain.connect(flangerDelay.delayTime);
@@ -130,6 +129,15 @@ function makeAudio() {
     reverbDry.gain.value   = 1 - state.reverb * 0.4;
     reverbFbGain.gain.value = 0.32 + state.reverb * 0.08;
 
+    // 🎓 Phaser/Flanger asservis au BPM (comme le sim Python : rate_hz dérivé
+    // de la durée d'une mesure). 1 cycle de LFO = 1 mesure (16 colonnes) →
+    // l'effet "respire" en phase avec le séquenceur, plutôt qu'à une vitesse fixe.
+    const measureSec = Math.max(0.05, (60 / Math.max(1, state.bpm)) * 4);
+    const lfoRateHz  = 1 / measureSec;
+    const now = ctx.currentTime;
+    phaserLfo.frequency.setTargetAtTime(lfoRateHz, now, 0.08);
+    flangerLfo.frequency.setTargetAtTime(lfoRateHz, now, 0.08);
+
     // Phaser : 0 quand désactivé (LFO modulation = 0 → all-pass neutre)
     phaserLfoGain.gain.value = state.phaserOn ? state.phaserDepth * 700 : 0;
 
@@ -137,7 +145,7 @@ function makeAudio() {
     const fw = state.flangerOn ? state.flangerDepth * 0.65 : 0;
     flangerWetGain.gain.value = fw;
     flangerDryGain.gain.value = 1 - fw * 0.4;
-    flangerLfoGain.gain.value = state.flangerOn ? state.flangerDepth * 0.005 : 0;
+    flangerLfoGain.gain.value = state.flangerOn ? state.flangerDepth * 0.006 : 0;
 
     // Volume batterie indépendant (bypass filtre/reverb GoL)
     drumMaster.gain.value = state.muted ? 0 : state.drumVolume;
@@ -158,9 +166,34 @@ function makeAudio() {
   /* ---- Accès au contexte audio (pour scheduling externe) ---------------- */
   function getCtx() { return ctx; }
 
+  /* ---- Âge → timbre : table de partiels harmoniques --------------------- */
+  // 🎓 Inspiré du sim Python (make_note) : l'âge d'une cellule enrichit le son
+  // en surimposant des harmoniques (multiples de la fondamentale), normalisées
+  // pour garder un volume perçu stable d'un âge à l'autre.
+  //   Harmoniques : empile 2e puis 3e harmonique → son plus "riche/rond"
+  //   Timbre      : empile 3e (impaire, creux façon clarinette) puis 2e/4e
+  function harmonicPartials(ageTarget, age) {
+    const a = Math.min(Math.max(age, 0), 2);
+    let partials;
+    if (ageTarget === 'Harmoniques') {
+      partials = [{ ratio: 1, gain: a >= 1 ? 0.75 : 1 }];
+      if (a >= 1) partials.push({ ratio: 2, gain: 0.25 });
+      if (a >= 2) partials.push({ ratio: 3, gain: 0.15 });
+    } else if (ageTarget === 'Timbre') {
+      partials = [{ ratio: 1, gain: 1 }];
+      if (a >= 1) partials.push({ ratio: 3, gain: 0.30 });
+      if (a >= 2) partials.push({ ratio: 2, gain: 0.28 }, { ratio: 4, gain: 0.12 });
+    } else {
+      partials = [{ ratio: 1, gain: 1 }];
+    }
+    const total = partials.reduce((s, p) => s + p.gain, 0);
+    return partials.map((p) => ({ ratio: p.ratio, gain: p.gain / total }));
+  }
+
   /* ---- Déclenchement d'une voix ----------------------------------------- */
   // audioTime : temps absolu AudioContext (optionnel, défaut = maintenant)
-  function trigger(freq, vel = 1, pan = 0, audioTime) {
+  // age / ageTarget : pilotent l'enrichissement harmonique (cf. harmonicPartials)
+  function trigger(freq, vel = 1, pan = 0, audioTime, age = 0, ageTarget = 'Volume') {
     if (state.muted) return;
     ensure();
     if (ctx.state === 'suspended') ctx.resume();
@@ -209,20 +242,31 @@ function makeAudio() {
     } else if (waveName.startsWith('FM')) {
       triggerFM(freq, voiceGain, t, end, waveName, onDone);
     } else {
-      triggerOsc(freq, voiceGain, t, end, OSCTYPE[waveName] || 'sine', onDone);
+      triggerOsc(freq, voiceGain, t, end, OSCTYPE[waveName] || 'sine', onDone, age, ageTarget);
     }
   }
 
-  /* ---- Oscillateur simple ------------------------------------------------ */
-  function triggerOsc(freq, out, t, end, oscType, onDone) {
-    const osc = ctx.createOscillator();
-    osc.type = oscType;
-    osc.frequency.value = freq;
-    osc.detune.value = (Math.random() * 2 - 1) * state.detune;
-    osc.connect(out);
-    osc.start(t);
-    osc.stop(end + 0.02);
-    osc.onended = () => { try { osc.disconnect(); } catch (_) {} onDone(); };
+  /* ---- Oscillateur simple (+ partiels harmoniques pilotés par l'âge) ----- */
+  function triggerOsc(freq, out, t, end, oscType, onDone, age = 0, ageTarget = 'Volume') {
+    const partials = harmonicPartials(ageTarget, age);
+    let pending = partials.length;
+    partials.forEach(({ ratio, gain }) => {
+      const osc = ctx.createOscillator();
+      osc.type = oscType;
+      osc.frequency.value = freq * ratio;
+      osc.detune.value = (Math.random() * 2 - 1) * state.detune;
+      const partialGain = ctx.createGain();
+      partialGain.gain.value = gain;
+      osc.connect(partialGain);
+      partialGain.connect(out);
+      osc.start(t);
+      osc.stop(end + 0.02);
+      osc.onended = () => {
+        try { osc.disconnect(); partialGain.disconnect(); } catch (_) {}
+        pending--;
+        if (pending === 0) onDone();
+      };
+    });
   }
 
   /* ---- FM 2-opérateurs -------------------------------------------------- */
