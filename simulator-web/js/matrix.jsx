@@ -39,6 +39,20 @@ function drumLedStyle(trackIdx, brightness, bloom) {
   };
 }
 
+/* ---- Mode Drum : mapping cellule physique ↔ (piste, pas) ---------------- */
+// 🎓 8 pistes × 32 pas répartis sur la matrice 16×16 en 2 bandes empilées :
+// lignes 0-7 = pas 0-15 (bande "haut"), lignes 8-15 = pas 16-31 (bande "bas").
+// Le balayage visuel parcourt donc le haut (gauche→droite) puis le bas,
+// formant un seul "serpent" de 32 pas dans le temps d'un cycle GoL de 16.
+function drumCellToTrackStep(x, y) {
+  const half = y < 8 ? 0 : 1;
+  return { track: y % 8, step: half * 16 + x };
+}
+function drumTrackStepToCell(track, step) {
+  const half = step < 16 ? 0 : 1;
+  return { x: step % 16, y: track + half * 8 };
+}
+
 /* ---- Rendu de toutes les cellules (mémoïsé sur gen + tweaks) ------------ */
 const Cells = memo(function Cells({ grid, pitches, brightness, bloom, warm,
                                     drumMode, drumPattern }) {
@@ -46,14 +60,15 @@ const Cells = memo(function Cells({ grid, pitches, brightness, bloom, warm,
   const G = window.GRID;
 
   if (drumMode && drumPattern) {
-    // Mode Drum : row = piste, col = pas
+    // Mode Drum : 8 pistes × 32 pas, mappés en 2 bandes empilées (cf. drumCellToTrackStep)
     for (let y = 0; y < G; y++) {
       for (let x = 0; x < G; x++) {
-        const on = !drumPattern.mutes[y] && (drumPattern.steps[y]?.[x] ?? false);
+        const { track, step } = drumCellToTrackStep(x, y);
+        const on = !drumPattern.mutes[track] && (drumPattern.steps[track]?.[step] ?? false);
         cells.push(
           <div key={y * G + x} className="lif-cell" data-x={x} data-y={y}>
             <div className={`lif-led ${on ? 'is-on' : ''}`}
-                 style={on ? drumLedStyle(y, brightness, bloom) : undefined} />
+                 style={on ? drumLedStyle(track, brightness, bloom) : undefined} />
           </div>
         );
       }
@@ -95,28 +110,31 @@ const Cells = memo(function Cells({ grid, pitches, brightness, bloom, warm,
 // Non mémoïsé — re-render à chaque tick pour les 1-16 cellules actives.
 // key="${playCol}-${y}" : force un nouveau nœud DOM à chaque colonne
 // → l'animation CSS repart de zéro à chaque déclenchement.
-function FlashCells({ grid, playCol, pitches, brightness, bloom, warm,
+function FlashCells({ grid, playCol, drumStep, pitches, brightness, bloom, warm,
                       drumMode, drumPattern }) {
-  if (playCol < 0) return null;
   const G = window.GRID;
   const dots = [];
 
   if (drumMode && drumPattern) {
-    // Mode Drum : flash les pas actifs sur la colonne courante
-    for (let y = 0; y < G; y++) {
-      if (!drumPattern.steps[y]?.[playCol] || drumPattern.mutes[y]) continue;
-      const color = window.DRUM_HUE ? window.DRUM_HUE[y] : '#c9a44c';
+    // Mode Drum : flash les pistes actives au pas courant (0-31), placées
+    // sur leur cellule physique (bande haut/bas) via drumTrackStepToCell.
+    if (drumStep < 0) return null;
+    for (let track = 0; track < 8; track++) {
+      if (!drumPattern.steps[track]?.[drumStep] || drumPattern.mutes[track]) continue;
+      const { x, y } = drumTrackStepToCell(track, drumStep);
+      const color = window.DRUM_HUE ? window.DRUM_HUE[track] : '#c9a44c';
       const glow  = 10 * bloom;
       dots.push(
-        <div key={`d${playCol}-${y}`} className="lif-flash-dot"
+        <div key={`d${drumStep}-${track}`} className="lif-flash-dot"
           style={{
-            gridColumn: playCol + 1, gridRow: y + 1,
+            gridColumn: x + 1, gridRow: y + 1,
             background: `radial-gradient(circle at 50% 40%, white 0%, ${color} 45%, transparent 75%)`,
             boxShadow:  `0 0 ${glow}px ${glow * 0.5}px ${color}, 0 0 ${glow * 2}px ${glow}px ${color}88`,
           }} />
       );
     }
   } else {
+    if (playCol < 0) return null;
     // Mode GoL : flash les cellules vivantes de la colonne
     for (let y = 0; y < G; y++) {
       const age = grid[y][playCol];
@@ -146,7 +164,7 @@ function FlashCells({ grid, playCol, pitches, brightness, bloom, warm,
 
 /* ---- Matrice complète (bezel + glass + cells + playhead + curseur) ------- */
 function Matrix({ grid, gen, pitches, brightness = 1, bloom = 1, warm = false,
-                  playCol, playing, cursor, drawMode, onPaint,
+                  playCol, drumStep = -1, playing, cursor, drawMode, onPaint,
                   drumMode = false, drumPattern = null }) {
   const painting = useRefM(null);
   const ref      = useRefM(null);
@@ -164,9 +182,13 @@ function Matrix({ grid, gen, pitches, brightness = 1, bloom = 1, warm = false,
   function onDown(e) {
     const c = cellFromEvent(e);
     if (!c) return;
-    // En mode Drum : l'effacement est basé sur le pattern, pas la grille GoL
+    // En mode Drum : l'effacement est basé sur le pattern (piste/pas logiques
+    // déduits de la cellule physique cliquée), pas sur la grille GoL
     const erase = drumMode && drumPattern
-      ? (drumPattern.steps[c.y]?.[c.x] === true)
+      ? (() => {
+          const { track, step } = drumCellToTrackStep(c.x, c.y);
+          return drumPattern.steps[track]?.[step] === true;
+        })()
       : (grid[c.y][c.x] > 0);
     painting.current = erase ? 'erase' : 'draw';
     onPaint(c.x, c.y, erase);
@@ -194,13 +216,23 @@ function Matrix({ grid, gen, pitches, brightness = 1, bloom = 1, warm = false,
             grid={grid} gen={gen} pitches={pitches}
             brightness={brightness} bloom={bloom} warm={warm}
             drumMode={drumMode} drumPattern={drumPattern} />
-          {playCol >= 0 && (
-            <div className="lif-playhead"
-              style={{ width: cw, transform: `translateX(${playCol * 100}%)` }} />
-          )}
+          {/* Tête de lecture : barre pleine hauteur en mode GoL, demi-hauteur
+              cantonnée à la bande haut/bas active en mode Drum (32 pas) */}
+          {drumMode
+            ? (drumStep >= 0 && (
+                <div className="lif-playhead"
+                  style={{
+                    width: cw, height: '50%',
+                    transform: `translate(${(drumStep % 16) * 100}%, ${drumStep < 16 ? 0 : 100}%)`,
+                  }} />
+              ))
+            : (playCol >= 0 && (
+                <div className="lif-playhead"
+                  style={{ width: cw, transform: `translateX(${playCol * 100}%)` }} />
+              ))}
           {playing && (
             <FlashCells
-              grid={grid} playCol={playCol}
+              grid={grid} playCol={playCol} drumStep={drumStep}
               pitches={pitches} brightness={brightness} bloom={bloom} warm={warm}
               drumMode={drumMode} drumPattern={drumPattern} />
           )}

@@ -106,21 +106,32 @@ MODE GOL              MODE DRUM
 
 ## 5. Contrôleurs physiques — décisions
 
-### Design cible : 6 contrôles physiques
+### Design cible : 7 contrôles physiques
 
 Réduction drastique grâce à la matrice utilisée comme écran de menu (voir section 6).
 
-| # | Rôle | Physique | Statut |
+```
+[ON/OFF ─]                         [VOL fine] [BRIGHT]
+┌──────────────────────────────────────────────────────┐
+│                                                      │
+│                  16×16 LED MATRIX                    │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+        [EC11-Y]    [PLAY/PAUSE │]    [EC11-X]
+```
+
+| # | Rôle | Physique | Notes |
 |---|---|---|---|
-| 1 | Volume général | Pot rotatif | Garder — accès immédiat indispensable |
-| 2 | Luminosité LED | Pot rotatif | Garder — accès immédiat indispensable |
-| 3 | Axe X dessin / navigation | Gros encodeur EC11 droit | Garder — multi-rôle selon mode |
-| 4 | Axe Y dessin / navigation | Gros encodeur EC11 gauche | Garder — multi-rôle selon mode |
-| 5 | Play/Pause | Bouton poussoir | Garder — doit être instantané |
-| 6 | Reset/New seed | Bouton poussoir | Garder — long press = formes |
+| 1 | On/Off | Toggle horizontal (haut gauche) | Switch d'alimentation ou veille |
+| 2 | Volume fin | Pot rotatif (haut droit) | Accès immédiat |
+| 3 | Luminosité LED | Pot rotatif (haut droit) | Accès immédiat |
+| 4 | Play/Pause | Toggle vertical (bas centre) | État physique = état logiciel (on *sent* le mode) |
+| 5 | Axe X dessin / navigation | Gros EC11 (bas droit) | Multi-rôle selon mode |
+| 6 | Axe Y dessin / navigation | Gros EC11 (bas gauche) | Multi-rôle selon mode |
+| 7 | Reset/New seed | Long press X + Y simultané | Geste à deux mains = difficile à faire accidentellement |
 
 **Supprimés / absorbés par les menus matrix :**
-BPM, Gamme, Timbre, Octave, Règles GoL → deviennent des sous-menus dans l'overlay matrice.
+BPM, Gamme, Timbre, Octave, Règles GoL → sous-menus dans l'overlay matrice.
 
 ### Interaction "Télécran" — encodeurs X/Y
 
@@ -147,35 +158,40 @@ Pas de bascule crayon/gomme explicite — l'état de la cellule dicte l'action. 
 
 ### Principe
 
-La matrice 16×16 sert à la fois d'affichage GoL et d'interface de menu. Un overlay couleur dédiée (blanc pur — jamais utilisé par le GoL) affiche les menus sans interrompre le jeu.
-
-```
-GoL actif + menu overlay
-┌────────────────┐
-│ . . ● . . ● . │  ← GoL en fond
-│[BPM  ████░░░] │  ← overlay menu (blanc)
-│ . ● . . . . ● │
-│ ...            │
-└────────────────┘
-```
+La matrice 16×16 sert à la fois d'affichage GoL et d'interface de menu. En mode menu, le GoL reste visible en fond **tamisé (20% luminosité)**, et les paramètres s'affichent par-dessus en blanc vif + couleurs.
 
 ### Déclenchement
 
 - **Long press encodeur Y** → ouvre le menu principal
-- **Tourner X** → navigue entre les paramètres (BPM / Gamme / Timbre / Octave / Règles)
-- **Tourner Y** → ajuste la valeur du paramètre sélectionné
+- **Tourner Y** → sélectionne la ligne de paramètre (navigue verticalement)
+- **Tourner X** → ajuste la valeur du paramètre actif
 - **Press Y** → confirme et ferme
 - **Timeout 2s sans interaction** → fermeture automatique
 
+### Layout Dashboard — 5 paramètres × 3 lignes
+
+```
+         col 0                    col 15
+row 0-2  ░░░░████████░░░░   BPM   (barre 16 pas, 40→300)
+row 3-5  ○ ○ ● ○ ○ ○ · ·   Gamme (point = gamme active, 6 gammes)
+row 6-8  ░░░░░░░█████░░░░   Timbre (barre)
+row 9-11 ○ ○ ○ ● ○ ○ · ·   Octave (1 bloc = 1 octave, 6 possibles)
+row12-14 ○ ○ ● ○ ○ ○ ○ ○   Règle  (icône par règle GoL)
+row 15   ────────■───────   Curseur de sélection (ligne active)
+```
+
+- Ligne sélectionnée = blanc vif, autres lignes = blanc 40%
+- GoL en fond = couleur d'origine à 20%
+
 ### Paramètres accessibles via menu
 
-| Paramètre | Représentation sur matrice |
-|---|---|
-| BPM | Barre horizontale 16 segments (40–300 BPM) |
-| Gamme | Icône 1 colonne par gamme (6 gammes = 6 colonnes) |
-| Timbre | Barre horizontale 16 segments |
-| Octave | Position verticale (1 LED = 1 octave, 6 possibles) |
-| Règles GoL | Icône par règle (B6S567, B5S45…) |
+| Paramètre | Représentation | Encodeur X |
+|---|---|---|
+| BPM | Barre 16 segments (40–300) | ±10 BPM par cran |
+| Gamme | 6 points espacés (Japonaise, Penta, Lydien…) | cran = gamme suivante |
+| Timbre | Barre 16 segments | ±1 par cran |
+| Octave | 6 blocs (octaves 1→6) | cran = +1 octave |
+| Règles GoL | 8 points (une icône par règle) | cran = règle suivante |
 
 ### Mode Mémoire (futur)
 

@@ -5,7 +5,7 @@
 
 function MachineView({ ctx }) {
   const {
-    p, set, grid, gen, pitches, playing, playCol, measure, cursor,
+    p, set, grid, gen, pitches, playing, playCol, drumStep, measure, cursor,
     penState, setPenState, live,
     togglePlay, doReset, doClear, doSave, doLoad,
     stampShape, paint, moveCursor, t,
@@ -25,7 +25,8 @@ function MachineView({ ctx }) {
       <window.Matrix
         grid={grid} gen={gen} pitches={pitches}
         brightness={p.brightness} bloom={t.bloom} warm={t.ledWarm}
-        playCol={playing ? playCol : -1} playing={playing}
+        playCol={playing ? playCol : -1}
+        drumStep={playing ? drumStep : -1} playing={playing}
         cursor={cursor} drawMode={penState !== 0}
         onPaint={drumMode ? paintDrum : paint}
         drumMode={drumMode} drumPattern={drumPattern} />

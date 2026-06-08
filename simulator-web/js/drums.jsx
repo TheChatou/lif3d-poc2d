@@ -1,89 +1,82 @@
 /* ==========================================================================
    LIF2D — Boîte à rythmes steampunk.
-   16 pistes × 16 pas, swing, mute/volume, 5 presets rythmiques.
-   Mode Drum : les pistes s'affichent aussi sur la matrice principale.
+   8 pistes × 32 pas, swing, mute/volume, 5 presets rythmiques.
+   🎓 32 pas à résolution 32e de note = même durée musicale qu'avant (16 pas
+   en 16e de note), mais deux fois plus de résolution rythmique — l'horloge
+   batterie tourne donc 2× plus vite que le balayage GoL (cf. app.jsx).
+   Mode Drum : les pistes s'affichent aussi sur la matrice principale,
+   réparties en deux bandes empilées (pas 0-15 en haut, 16-31 en bas) pour
+   tenir sur la matrice physique 16×16.
    ========================================================================== */
 
-// Noms, abréviations et couleurs des 16 pistes
-const DRUM_NAMES = [
-  'Kick', 'Snare', 'Hat', 'Hat ouvert', 'Clap',
-  'Tom H', 'Tom M', 'Tom L', 'Rim', 'Cowbell',
-  'Clave', 'Shaker', 'Maracas', 'Ride', 'Crash', 'Perc',
-];
-const DRUM_ABBR = [
-  'K', 'S', 'H', 'Ho', 'C',
-  'TH', 'TM', 'TL', 'Ri', 'Co',
-  'Cl', 'Sh', 'Ma', 'Rd', 'Cr', 'P',
-];
+// Noms, abréviations et couleurs des 8 pistes (kit de base boîte à rythmes)
+const DRUM_NAMES = ['Kick', 'Snare', 'Hat', 'Hat ouvert', 'Clap', 'Tom H', 'Tom M', 'Tom L'];
+const DRUM_ABBR  = ['K', 'S', 'H', 'Ho', 'C', 'TH', 'TM', 'TL'];
 // Couleurs accent (CSS color strings) par piste
 const DRUM_HUE = [
-  '#e07b2a', '#d4c44a', '#7ab8e0', '#5ba8d8', '#c27ae0',
-  '#e08a7a', '#e06a4a', '#c84a28', '#a0d88e', '#d4d480',
-  '#88d4b0', '#b8d480', '#80a8d4', '#a888d4', '#d488b8', '#d4a880',
+  '#e07b2a', '#d4c44a', '#7ab8e0', '#5ba8d8',
+  '#c27ae0', '#e08a7a', '#e06a4a', '#c84a28',
 ];
 
 /* ---- Helpers ------------------------------------------------------------ */
-const _b = (s) => s.split('').map((c) => c === '1');
-const _E = () => Array(16).fill(false);
+const _b  = (s) => s.split('').map((c) => c === '1');
+const _E  = () => Array(32).fill(false);
+// 🎓 Les anciens patterns 16 pas restent valides : on les rejoue tels quels
+// sur les deux moitiés du cycle de 32 pas (même rythme, juste plus de résolution).
+const _x2 = (s16) => _b(s16 + s16);
 
 /* ---- Patterns de batterie (steps uniquement, appliqués sur le pattern) -- */
 const DRUM_PRESETS = {
-  'Vide':  Array(16).fill(null).map(_E),
+  'Vide': Array(8).fill(null).map(_E),
 
   // 🎓 4/4 classique : kick sur les temps 1 et 3, snare sur 2 et 4,
   // hat en croches (toutes les 2 doubles-croches = 8 hits par mesure).
   '4/4': [
-    _b('1000000010000000'), // Kick
-    _b('0000100000001000'), // Snare
-    _b('1010101010101010'), // Hat
-    _E(), _E(),             // Hat ouvert, Clap
+    _x2('1000000010000000'), // Kick
+    _x2('0000100000001000'), // Snare
+    _x2('1010101010101010'), // Hat
     _E(), _E(), _E(), _E(), _E(),
-    _E(), _E(), _E(), _E(), _E(), _E(),
   ],
 
   // 🎓 Trap : kick syncopé, hat en doubles-croches (hi-hat rapide), snare sur le 3.
   'Trap': [
-    _b('1000100100000100'), // Kick syncopé
-    _b('0000000010000000'), // Snare sur le 3
-    _b('1111111111111111'), // Hat tout (doubles-croches)
-    _b('0000001000000010'), // Hat ouvert (off-beats)
-    _E(), _E(), _E(), _E(), _E(), _E(),
-    _E(), _E(), _E(), _E(), _E(), _E(),
+    _x2('1000100100000100'), // Kick syncopé
+    _x2('0000000010000000'), // Snare sur le 3
+    _x2('1111111111111111'), // Hat tout (doubles-croches)
+    _x2('0000001000000010'), // Hat ouvert (off-beats)
+    _E(), _E(), _E(), _E(),
   ],
 
-  // 🎓 Afro : feel Afrobeat, clave son (3+3+2) sur la piste Clave (index 10).
-  // Le 3-2 son clave : positions 0, 3, 6, 10, 12 dans la mesure de 16.
+  // 🎓 Afro : feel Afrobeat — le son clave 3-2 (positions 0,3,6,10,12 sur 16)
+  // est ici porté par la piste Clap, faute de piste Clave dédiée dans ce kit réduit.
   'Afro': [
-    _b('1000100000101000'), // Kick
-    _b('0000100000001000'), // Snare
-    _b('1010101010101010'), // Hat en croches
-    _E(), _E(),
-    _E(), _E(), _E(), _E(), _E(),
-    _b('1001001000101000'), // Clave 3-2 son
-    _E(), _E(), _E(), _E(), _E(),
+    _x2('1000100000101000'), // Kick
+    _x2('0000100000001000'), // Snare
+    _x2('1010101010101010'), // Hat en croches
+    _E(),
+    _x2('1001001000101000'), // Clap = clave 3-2 son
+    _E(), _E(), _E(),
   ],
 
   // 🎓 Bossa nova : hat avec le pattern caractéristique 1-0-1-1-0-1-0-1 (×2).
   'Bossa': [
-    _b('1000100000001000'), // Kick bossa
-    _b('0000000100000001'), // Snare léger (brushes)
-    _b('1011010110110101'), // Hat bossa pattern
-    _E(), _E(),
+    _x2('1000100000001000'), // Kick bossa
+    _x2('0000000100000001'), // Snare léger (brushes)
+    _x2('1011010110110101'), // Hat bossa pattern
     _E(), _E(), _E(), _E(), _E(),
-    _E(), _E(), _E(), _E(), _E(), _E(),
   ],
 };
 
-/* ---- Pattern par défaut (16 pistes) ------------------------------------- */
+/* ---- Pattern par défaut (8 pistes × 32 pas) ----------------------------- */
 const DRUM_DEFAULT = {
   steps: [
-    _b('1000000010000000'), // Kick
-    _b('0000100000001000'), // Snare
-    _b('1010101010101010'), // Hat
-    ...Array(13).fill(null).map(_E),
+    _x2('1000000010000000'), // Kick
+    _x2('0000100000001000'), // Snare
+    _x2('1010101010101010'), // Hat
+    ...Array(5).fill(null).map(_E),
   ],
-  vols:  [0.85, 0.72, 0.48, 0.55, 0.60, ...Array(11).fill(0.65)],
-  mutes: Array(16).fill(false),
+  vols:  [0.85, 0.72, 0.48, 0.55, 0.60, 0.65, 0.65, 0.65],
+  mutes: Array(8).fill(false),
   swing: 0,
 };
 
@@ -219,9 +212,7 @@ const __DRUM_CSS = `
 
   /* ---- Wrap matrice en vue Batterie (override sizing fixe de .lif-matrix) */
   .lif-bat-mwrap {
-    height: 100%;
-    aspect-ratio: 1 / 1;
-    min-width: 0;
+    /* Taille carrée imposée en pixels via JS (squareSize) — voir BatterieView */
     flex-shrink: 0;
     box-sizing: border-box;
   }
@@ -252,8 +243,8 @@ const __DRUM_CSS = `
   }
 `;
 
-/* ---- Grille des pistes (16 rangées compactes) --------------------------- */
-function DrumMachine({ pattern, onChange, playCol, playing }) {
+/* ---- Grille des pistes (8 rangées × 32 pas) ----------------------------- */
+function DrumMachine({ pattern, onChange, playStep, playing }) {
   const toggleStep = (track, step) => {
     const steps = pattern.steps.map((row, t) =>
       t === track ? row.map((v, s) => (s === step ? !v : v)) : row
@@ -292,8 +283,8 @@ function DrumMachine({ pattern, onChange, playCol, playing }) {
                 className={[
                   'lif-drum-step',
                   on ? 'is-on' : '',
-                  playing && playCol === step ? 'is-playing' : '',
-                  step > 0 && step % 4 === 0 ? 'is-beat-start' : '',
+                  playing && playStep === step ? 'is-playing' : '',
+                  step > 0 && step % 8 === 0 ? 'is-beat-start' : '',
                 ].join(' ')}
                 style={on ? { '--step-color': DRUM_HUE[track] } : {}}
                 onClick={() => toggleStep(track, step)}
@@ -307,7 +298,7 @@ function DrumMachine({ pattern, onChange, playCol, playing }) {
 }
 
 /* ---- Wrapper collapsible + sélecteur de presets ------------------------- */
-function DrumPanel({ pattern, onChange, playCol, playing }) {
+function DrumPanel({ pattern, onChange, playStep, playing }) {
   const [open, setOpen] = React.useState(false);
 
   const applyPreset = (name) => {
@@ -352,7 +343,7 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
         <DrumMachine
           pattern={pattern}
           onChange={onChange}
-          playCol={playCol}
+          playStep={playStep}
           playing={playing}
         />
       </div>
@@ -360,9 +351,33 @@ function DrumPanel({ pattern, onChange, playCol, playing }) {
   );
 }
 
-/* ---- Vue Batterie : matrice 16×16 + labels/mute/vol par piste ----------- */
+/* ---- Vue Batterie : matrice 16×16 (8 pistes × 32 pas, 2 bandes empilées) - */
+// 🎓 Chaque piste occupe deux lignes physiques de la matrice (bande "haut" =
+// pas 0-15, bande "bas" = pas 16-31) — d'où le panneau de réglages à 8 lignes,
+// chacune deux fois plus haute, alignée sur sa paire de bandes.
 function BatterieView({ ctx }) {
-  const { drumPattern, setDrumPattern, paintDrum, playing, playCol, p, set } = ctx;
+  const { drumPattern, setDrumPattern, paintDrum, playing, drumStep, p, set } = ctx;
+
+  // 🎓 La matrice doit rester carrée ET sa hauteur doit piloter celle du
+  // panneau de labels (pour que les 16 lignes restent alignées sur les 2
+  // bandes). CSS seul ne peut pas dériver une hauteur depuis l'espace
+  // restant après soustraction d'une largeur fixe → on mesure en JS
+  // (ResizeObserver) et on impose la taille carrée en pixels aux deux.
+  const LABEL_W = 88, GAP = 12;
+  const rowRef = React.useRef(null);
+  const [squareSize, setSquareSize] = React.useState(0);
+  React.useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setSquareSize(Math.max(0, Math.min(r.height, r.width - LABEL_W - GAP)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const sl = {
     WebkitAppearance: 'none', appearance: 'none',
@@ -380,13 +395,14 @@ function BatterieView({ ctx }) {
     <div style={{
       width: 'calc(100vw - 48px)',
       height: 'calc(100vh - 84px)',
-      display: 'flex', flexDirection: 'column',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
       gap: 8, padding: '8px 12px', boxSizing: 'border-box',
     }}>
 
       {/* ---- En-tête : titre + swing + vol drums + presets ------------------ */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 14, flexWrap: 'wrap', flexShrink: 0, width: '100%', maxWidth: 760,
         borderBottom: '1px solid rgba(255,255,255,.06)', paddingBottom: 8,
       }}>
         <span style={{ fontFamily: 'Cinzel', fontSize: 12, letterSpacing: '.2em',
@@ -420,47 +436,72 @@ function BatterieView({ ctx }) {
         ))}
       </div>
 
-      {/* ---- Zone principale : labels pistes (gauche) + matrice carrée (droite) */}
+      {/* ---- Zone principale : centrée, labels pistes + matrice carrée ------ */}
       {/* flex: 1 + min-height: 0 → la zone remplit l'espace restant sans déborder */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
+      <div ref={rowRef} style={{
+        flex: 1, minHeight: 0, width: '100%', maxWidth: 760,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: GAP,
+      }}>
 
-        {/* Labels pistes : CSS grid 16 lignes, hauteur = 100% de la zone */}
+        {/* Labels pistes : 16 lignes calquées sur les 2 bandes de la matrice —
+            🎓 ligne i affiche la piste (i % 8), exactement comme drumCellToTrackStep.
+            Bande haut (i<8) : contrôles complets ; bande bas (i>=8) : juste le
+            repère de piste, atténué, pour rappeler "même piste, 2e moitié".
+            Hauteur imposée en pixels (= taille de la matrice) pour garantir
+            l'alignement ligne à ligne — voir mesure ResizeObserver ci-dessus. */}
         <div style={{
           display: 'grid', gridTemplateRows: 'repeat(16, 1fr)',
-          width: 88, flexShrink: 0,
+          width: LABEL_W, height: squareSize || '100%', flexShrink: 0,
         }}>
-          {DRUM_NAMES.map((name, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', gap: 3,
-              padding: '0 4px', borderBottom: '1px solid rgba(255,255,255,.03)',
-            }}>
-              <button onClick={() => toggleMute(i)} style={{
-                width: 14, height: 14, borderRadius: 3, flexShrink: 0,
-                border: `1px solid ${drumPattern.mutes[i] ? 'rgba(217,83,79,.6)' : 'rgba(255,255,255,.15)'}`,
-                background: drumPattern.mutes[i] ? 'rgba(217,83,79,.25)' : 'rgba(255,255,255,.05)',
-                color: drumPattern.mutes[i] ? '#d9534f' : 'var(--text-dim)',
-                fontSize: 7, cursor: 'pointer', display: 'grid', placeItems: 'center',
-              }}>M</button>
+          {Array.from({ length: 16 }, (_, i) => {
+            const t = i % 8;
+            const isTop = i < 8;
+            return (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 3,
+                padding: '0 4px', borderBottom: '1px solid rgba(255,255,255,.03)',
+                opacity: isTop ? 1 : 0.4,
+              }}>
+                {isTop ? (
+                  <>
+                    <button onClick={() => toggleMute(t)} style={{
+                      width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                      border: `1px solid ${drumPattern.mutes[t] ? 'rgba(217,83,79,.6)' : 'rgba(255,255,255,.15)'}`,
+                      background: drumPattern.mutes[t] ? 'rgba(217,83,79,.25)' : 'rgba(255,255,255,.05)',
+                      color: drumPattern.mutes[t] ? '#d9534f' : 'var(--text-dim)',
+                      fontSize: 7, cursor: 'pointer', display: 'grid', placeItems: 'center',
+                    }}>M</button>
 
-              <span style={{ color: DRUM_HUE[i], fontSize: 9, fontFamily: 'Space Mono',
-                             fontWeight: 700, width: 16, flexShrink: 0, lineHeight: 1 }}>
-                {DRUM_ABBR[i]}
-              </span>
+                    <span style={{ color: DRUM_HUE[t], fontSize: 9, fontFamily: 'Space Mono',
+                                   fontWeight: 700, width: 16, flexShrink: 0, lineHeight: 1 }}>
+                      {DRUM_ABBR[t]}
+                    </span>
 
-              <input type="range" min="0" max="1" step="0.01"
-                value={drumPattern.vols[i] ?? 0.65}
-                style={{ ...sl, width: 28, flexShrink: 0 }}
-                onChange={(e) => setVol(i, parseFloat(e.target.value))} />
-            </div>
-          ))}
+                    <input type="range" min="0" max="1" step="0.01"
+                      value={drumPattern.vols[t] ?? 0.65}
+                      style={{ ...sl, width: 28, flexShrink: 0 }}
+                      onChange={(e) => setVol(t, parseFloat(e.target.value))} />
+                  </>
+                ) : (
+                  <span style={{ color: DRUM_HUE[t], fontSize: 8, fontFamily: 'Space Mono',
+                                 fontWeight: 700, lineHeight: 1, paddingLeft: 17 }}>
+                    {DRUM_ABBR[t]} ↳
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        {/* Matrice : carrée, prend toute la hauteur disponible via aspect-ratio */}
-        <div className="lif-bat-mwrap">
+        {/* Matrice : carrée, taille en pixels imposée (cf. mesure ci-dessus)
+            pour rester en phase avec le panneau de labels ligne à ligne. */}
+        <div className="lif-bat-mwrap"
+          style={squareSize ? { width: squareSize, height: squareSize } : undefined}>
           <window.Matrix
             grid={window.emptyGrid()} gen={0} pitches={[]}
             brightness={p.brightness} bloom={1} warm={false}
-            playCol={playing ? playCol : -1} playing={playing}
+            playCol={-1} playing={playing}
+            drumStep={playing ? drumStep : -1}
             cursor={null} drawMode={false}
             onPaint={paintDrum}
             drumMode={true} drumPattern={drumPattern} />

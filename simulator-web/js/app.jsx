@@ -72,6 +72,9 @@ function App() {
   const [gen,     setGen]       = useState(0);
   const [playing, setPlaying]   = useState(false);
   const [playCol, setPlayCol]   = useState(-1);
+  // 🎓 drumStep (0-31) : tête de lecture batterie, à résolution 32e de note —
+  // deux fois plus fine que playCol (16e de note), cf. horloge ci-dessous.
+  const [drumStep, setDrumStep] = useState(-1);
   const [measure, setMeasure]   = useState(0);
   const [cursor,  setCursor]    = useState({ x: 8, y: 8 });
   const [penState, setPenState] = useState(1);   // 0 lever · 1 tracer · 2 gomme
@@ -106,12 +109,18 @@ function App() {
   const drumModeRef = useRef(false);
   drumModeRef.current = drumMode;
 
-  /* ---- Peinture en mode Drum : toggle step (x=colonne, y=piste) ---------- */
+  /* ---- Peinture en mode Drum : (x,y) = cellule physique de la matrice ---- */
+  // 🎓 8 pistes × 32 pas répartis en 2 bandes empilées de 8 lignes sur la
+  // matrice 16×16 : lignes 0-7 = pas 0-15, lignes 8-15 = pas 16-31.
+  // On reconvertit la cellule cliquée (x,y) en (piste, pas) logiques.
   const paintDrum = useCallback((x, y, erase) => {
+    const half  = y < 8 ? 0 : 1;
+    const track = y % 8;
+    const step  = half * 16 + x;
     setDrumPattern((dp) => ({
       ...dp,
       steps: dp.steps.map((row, t) =>
-        t === y ? row.map((v, s) => (s === x ? !erase : v)) : row
+        t === track ? row.map((v, s) => (s === step ? !erase : v)) : row
       ),
     }));
   }, []);
@@ -166,127 +175,142 @@ function App() {
   }, [p.loopOn]);
 
   /* ---- Horloge musicale -------------------------------------------------- */
+  // 🎓 Une SEULE horloge de référence, à la résolution la plus fine requise
+  // (32e de note = résolution batterie). Le GoL/arpégiateur, plus lents,
+  // ne lisent qu'un tick sur deux (diviseur ÷2) — exactement le principe
+  // déjà utilisé pour ARP_DIV, mais appliqué à l'horloge maîtresse.
+  // Ça évite la dérive de phase qu'auraient deux setInterval indépendants,
+  // et c'est le pattern naturel côté firmware (1 timer matériel + diviseurs).
   useEffect(() => {
-    if (!playing) { setPlayCol(-1); return; }
+    if (!playing) { setPlayCol(-1); setDrumStep(-1); return; }
 
-    // Durée d'une double-croche en ms
+    // Durée d'une double-croche (16e de note) en ms — référence du tempo affiché
     const sixteenth = (60 / pRef.current.bpm) / 4 * 1000;
+    // Tick maître = triple-croche (32e de note) : deux fois plus rapide
+    const subTick   = sixteenth / 2;
 
     const id = setInterval(() => {
-      const st  = stepRef.current;
-      const col = st % window.GRID;
-      setPlayCol(col);
+      const st       = stepRef.current;
+      const golTick  = st % 2 === 0;          // un tick maître sur deux pilote le GoL
+      const drumStepVal = st % 32;
+      const col      = Math.floor(st / 2) % window.GRID;
+
+      setDrumStep(drumStepVal);
 
       const g  = gridRef.current;
       const pp = pitchesRef.current;
       const P  = pRef.current;
 
-      // ---- Déclenchement des notes (arp ou colonne normale) ----------------
+      // ---- Déclenchement des notes (arp ou colonne normale) — 1 tick sur 2 -
       let any = false;
 
-      if (P.arpOn) {
-        // Notes vivantes de cette colonne, triées selon le mode
-        const seq     = window.buildColArpSeq(g, col, pp, P.arpMode);
-        const divCount = window.ARP_DIV_VALUES[P.arpSpeed] ?? 2;
+      if (golTick) {
+        setPlayCol(col);
 
-        if (seq.length > 0) {
-          any = true;
+        if (P.arpOn) {
+          // Notes vivantes de cette colonne, triées selon le mode
+          const seq     = window.buildColArpSeq(g, col, pp, P.arpMode);
+          const divCount = window.ARP_DIV_VALUES[P.arpSpeed] ?? 2;
 
-          // Contexte audio pour le scheduling précis
-          const actx     = audio.current.getCtx();
-          const nowAudio = actx ? actx.currentTime : 0;
-          // Durée d'un sous-tick en secondes (sixteenth est en ms)
-          const subSec   = (sixteenth / 1000) / divCount;
-          // Groove : amplitude du swing (proportion du sous-tick), 0 = droit
-          // Les sous-ticks impairs sont décalés de grooveShift secondes en avant
-          const grooveShift = P.arpGroove ? subSec * 0.35 : 0;
-
-          // Subdivision : on programme divCount sous-ticks dans ce temps
-          for (let i = 0; i < divCount; i++) {
-            const indices = window.arpNoteIndices(arpSubTickRef.current + i, seq.length, P.arpMode);
-            // Timing groove : sous-ticks impairs légèrement retardés (swing)
-            const t = nowAudio + i * subSec + (i % 2 === 1 ? grooveShift : 0);
-            indices.forEach((noteIdx) => {
-              const { midi, age } = seq[noteIdx];
-              const vel = P.ageTarget === 1 ? Math.min(0.4 + age * 0.15, 1) : 0.75;
-              audio.current.trigger(window.midiToFreq(midi), vel, 0, t);
-            });
-          }
-          // Avancer le compteur global de sous-ticks (continuité cross-colonnes)
-          arpSubTickRef.current += divCount;
-        }
-
-      } else {
-        // Mode normal : toutes les cellules vivantes de la colonne
-        for (let y = 0; y < window.GRID; y++) {
-          const age = g[y][col];
-          if (age > 0 && (!P.muteAge || age < P.muteAge)) {
-            const midi = window.rowToPitch(y, pp);
-            const vel  = P.ageTarget === 1 ? Math.min(0.4 + age * 0.18, 1) : 0.85;
-            const pan  = (col / (window.GRID - 1)) * 2 - 1;
-            audio.current.trigger(window.midiToFreq(midi), vel, pan);
+          if (seq.length > 0) {
             any = true;
+
+            // Contexte audio pour le scheduling précis
+            const actx     = audio.current.getCtx();
+            const nowAudio = actx ? actx.currentTime : 0;
+            // Durée d'un sous-tick en secondes (sixteenth est en ms)
+            const subSec   = (sixteenth / 1000) / divCount;
+            // Groove : amplitude du swing (proportion du sous-tick), 0 = droit
+            // Les sous-ticks impairs sont décalés de grooveShift secondes en avant
+            const grooveShift = P.arpGroove ? subSec * 0.35 : 0;
+
+            // Subdivision : on programme divCount sous-ticks dans ce temps
+            for (let i = 0; i < divCount; i++) {
+              const indices = window.arpNoteIndices(arpSubTickRef.current + i, seq.length, P.arpMode);
+              // Timing groove : sous-ticks impairs légèrement retardés (swing)
+              const t = nowAudio + i * subSec + (i % 2 === 1 ? grooveShift : 0);
+              indices.forEach((noteIdx) => {
+                const { midi, age } = seq[noteIdx];
+                const vel = P.ageTarget === 1 ? Math.min(0.4 + age * 0.15, 1) : 0.75;
+                audio.current.trigger(window.midiToFreq(midi), vel, 0, t);
+              });
+            }
+            // Avancer le compteur global de sous-ticks (continuité cross-colonnes)
+            arpSubTickRef.current += divCount;
+          }
+
+        } else {
+          // Mode normal : toutes les cellules vivantes de la colonne
+          for (let y = 0; y < window.GRID; y++) {
+            const age = g[y][col];
+            if (age > 0 && (!P.muteAge || age < P.muteAge)) {
+              const midi = window.rowToPitch(y, pp);
+              const vel  = P.ageTarget === 1 ? Math.min(0.4 + age * 0.18, 1) : 0.85;
+              const pan  = (col / (window.GRID - 1)) * 2 - 1;
+              audio.current.trigger(window.midiToFreq(midi), vel, pan);
+              any = true;
+            }
           }
         }
-      }
 
-      // ---- Batterie (drum machine) ----------------------------------------
+        // Indicateur "live" (haut-parleur)
+        if (any) {
+          setLive(true);
+          clearTimeout(liveTO.current);
+          liveTO.current = setTimeout(() => setLive(false), 110);
+        }
+
+        // Évolution Conway + gestion des mesures (déclenchés à chaque col 0)
+        if (st > 0 && col === 0) {
+          setMeasure((mm) => {
+            const next          = mm + 1;
+            const sweepsPerEvol = Math.max(1, tRef.current.sweepsPerEvol ?? 1);
+            const P2            = pRef.current;
+
+            // Loop : rejoue depuis l'ancre après N mesures (seulement si loopOn)
+            // 🎓 GoL est déterministe → repartir de la même grille rejoue exactement
+            // la même séquence sonore, sans re-randomiser.
+            if (P2.loopOn && loopAnchorRef.current) {
+              const loopBars = window.LOOP_BARS[P2.loopLen];
+              if (next % loopBars === 0) {
+                setGrid(window.cloneGrid(loopAnchorRef.current));
+                setGen((x) => x + 1);
+                return next;
+              }
+            }
+
+            // Conway pur : une génération par N balayages.
+            // 🎓 En mode Drum, GoL est gelé — seul le playhead avance.
+            if (next % sweepsPerEvol === 0 && !drumModeRef.current) {
+              const rule = window.RULES[P2.ruleIdx];
+              const ng   = window.step(gridRef.current, rule, P2.ageMax || 0);
+              setGrid(ng);
+              setGen((x) => x + 1);
+            }
+
+            return next;
+          });
+        }
+      } // fin golTick
+
+      // ---- Batterie (drum machine) — lue à CHAQUE tick (résolution 32e) ---
       // 🎓 On lit le pattern de la ref (pas du state) pour éviter de
       // recréer le setInterval à chaque changement de pattern.
       const dp    = drumPatternRef.current;
       const actxD = audio.current.getCtx();
       const nowD  = actxD ? actxD.currentTime : 0;
-      // 🎓 Swing : les pas impairs (off-beats) sont retardés proportionnellement.
-      // Ex: swing 50% → les doubles-croches impaires arrivent plus tard,
-      // donnant le feel "shuffle" ou "groove" caractéristique.
-      const swingOff = (col % 2 === 1) ? dp.swing * (sixteenth / 1000) * 0.32 : 0;
+      // 🎓 Swing : les pas impairs (off-beats) sont retardés proportionnellement
+      // à la durée du tick maître (32e de note), pour garder le même feel
+      // "shuffle" qu'avant à la nouvelle résolution.
+      const swingOff = (drumStepVal % 2 === 1) ? dp.swing * (subTick / 1000) * 0.32 : 0;
       window.DRUM_NAMES.forEach((name, track) => {
-        if (!dp.mutes[track] && dp.steps[track] && dp.steps[track][col]) {
+        if (!dp.mutes[track] && dp.steps[track] && dp.steps[track][drumStepVal]) {
           audio.current.triggerDrum(name, nowD + swingOff, dp.vols[track]);
         }
       });
 
-      // Indicateur "live" (haut-parleur)
-      if (any) {
-        setLive(true);
-        clearTimeout(liveTO.current);
-        liveTO.current = setTimeout(() => setLive(false), 110);
-      }
-
-      // Évolution Conway + gestion des mesures (déclenchés à chaque col 0)
-      if (st > 0 && col === 0) {
-        setMeasure((mm) => {
-          const next          = mm + 1;
-          const sweepsPerEvol = Math.max(1, tRef.current.sweepsPerEvol ?? 1);
-          const P2            = pRef.current;
-
-          // Loop : rejoue depuis l'ancre après N mesures (seulement si loopOn)
-          // 🎓 GoL est déterministe → repartir de la même grille rejoue exactement
-          // la même séquence sonore, sans re-randomiser.
-          if (P2.loopOn && loopAnchorRef.current) {
-            const loopBars = window.LOOP_BARS[P2.loopLen];
-            if (next % loopBars === 0) {
-              setGrid(window.cloneGrid(loopAnchorRef.current));
-              setGen((x) => x + 1);
-              return next;
-            }
-          }
-
-          // Conway pur : une génération par N balayages.
-          // 🎓 En mode Drum, GoL est gelé — seul le playhead avance.
-          if (next % sweepsPerEvol === 0 && !drumModeRef.current) {
-            const rule = window.RULES[P2.ruleIdx];
-            const ng   = window.step(gridRef.current, rule, P2.ageMax || 0);
-            setGrid(ng);
-            setGen((x) => x + 1);
-          }
-
-          return next;
-        });
-      }
-
       stepRef.current = st + 1;
-    }, sixteenth);
+    }, subTick);
 
     return () => clearInterval(id);
   }, [playing, p.bpm]);  // recréer l'intervalle seulement si playing ou bpm changent
@@ -413,7 +437,7 @@ function App() {
   /* ---- Contexte partagé entre les vues ---------------------------------- */
   const viewCtx = {
     p, set, grid, gen, pitches,
-    playing, playCol, measure,
+    playing, playCol, drumStep, measure,
     cursor, penState, setPenState,
     live, saved, t, setTweak,
     togglePlay, doReset, doClear, doSave, doLoad,
@@ -456,7 +480,7 @@ function App() {
         <window.DrumPanel
           pattern={drumPattern}
           onChange={setDrumPattern}
-          playCol={playCol}
+          playStep={drumStep}
           playing={playing}
         />
       )}
