@@ -16,10 +16,13 @@
  */
 
 // 🎓 Sur PC, on inclut les types depuis la bibliothèque standard C.
-//    Sur Arduino, uint8_t etc. viennent d'Arduino.h (inclus automatiquement).
+//    Sur Arduino/PlatformIO, les .cpp n'incluent PAS Arduino.h automatiquement —
+//    il faut le faire explicitement pour avoir uint8_t, uint16_t, etc.
 #ifndef ARDUINO
   #include <stdint.h>
   #include <string.h>
+#else
+  #include <Arduino.h>
 #endif
 
 // Dimensions de la grille

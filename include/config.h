@@ -15,6 +15,13 @@
  * ⚠ L'ESP32 a ~25 GPIO utilisables sur ~38 au total.
  *   Certaines broches ont des rôles spéciaux au démarrage ("strapping pins").
  *   Chaque cas particulier est documenté ci-dessous.
+ *
+ * Contrôleurs physiques (5 total) :
+ *   – Encodeur VOL/LUMI  : tourner = volume, clic = bascule vers luminosité
+ *   – Encodeur X (droite) : navigation horizontale + menu
+ *   – Encodeur Y (gauche) : navigation verticale  + menu
+ *   – Switch latching     : mode on/off (ex. mode dessin)
+ *   – Bouton silicone     : play/pause (momentané)
  */
 
 
@@ -37,7 +44,7 @@
 //    une puce qui reçoit et retransmet les données. Un seul fil de données
 //    suffit pour contrôler les 256 LEDs en chaîne !
 //
-//    GPIO 5 : safe pour FastLED, aucune restriction.
+//    GPIO 5 : safe pour FastLED, aucune restriction après boot.
 //
 // ⚠ IMPORTANT dans platformio.ini — ajouter cette ligne dans build_flags :
 //      -D FASTLED_ESP32_I2S=true
@@ -52,135 +59,123 @@
 
 
 // ============================================================================
-// AUDIO — DAC intégré ESP32 → amplificateur PAM8403
+// AUDIO — DAC intégré ESP32 → amplificateur PAM8403 + jack TRS 3.5mm
 // ============================================================================
 // 🎓 DAC = Digital-to-Analog Converter.
 //    L'ESP32 génère un nombre (0–255) → le DAC le convertit en tension (0–3.3V).
-//    Cette tension analogique entre dans le PAM8403 qui l'amplifie pour les HP.
+//    Ce signal part en parallèle vers :
+//      – le PAM8403 (amplifie pour les HP intégrés)
+//      – le jack TRS 3.5mm stéréo (sortie ligne vers DAW / ampli externe)
+
+#define AUDIO_LEFT_PIN    25   // DAC1 → PAM8403 L + Tip  jack TRS audio
+#define AUDIO_RIGHT_PIN   26   // DAC2 → PAM8403 R + Ring jack TRS audio
+
+
+// ============================================================================
+// MIDI OUT — UART2 remappé sur GPIO4 → jack TRS 3.5mm Type A
+// ============================================================================
+// 🎓 MIDI utilise le protocole UART à 31250 bauds (bits/seconde).
+//    L'ESP32 a 3 ports UART entièrement remappables sur n'importe quel GPIO.
+//    On utilise UART2 remappé sur GPIO4 (au lieu du défaut GPIO17)
+//    pour éviter le conflit avec l'encodeur VOL/LUMI sur GPIO17.
 //
-//    L'ESP32 a 2 DAC 8-bit : DAC1 sur GPIO 25, DAC2 sur GPIO 26.
-//    Mozzi utilisera ces deux sorties pour le son stéréo (gauche + droite).
-
-#define AUDIO_LEFT_PIN    25   // DAC1 → entrée gauche PAM8403 (canal L)
-#define AUDIO_RIGHT_PIN   26   // DAC2 → entrée droite PAM8403 (canal R)
-
-
-// ============================================================================
-// POTENTIOMÈTRES — ADC1 (GPIO en entrée uniquement)
-// ============================================================================
-// 🎓 ADC = Analog-to-Digital Converter — l'inverse du DAC.
-//    Lit la tension d'un potentiomètre (0–3.3V) et renvoie 0–4095 (12 bits).
+//    Dans le firmware : Serial2.begin(31250, SERIAL_8N1, -1, MIDI_TX_PIN);
+//    (-1 = RX non utilisé pour MIDI OUT)
 //
-//    GPIO 34, 36, 39 sont "input-only" : ils ne peuvent pas sortir de signal
-//    ni activer de résistance interne (pullup). Pas de souci pour des pots
-//    car un potentiomètre génère lui-même sa tension — pas besoin de pullup.
+//    TRS Type A = standard MIDI Association (Korg, Arturia, Make Noise...) :
+//      Tip   = signal TX (GPIO4 via 220Ω)
+//      Ring  = source courant (+3.3V via 220Ω)
+//      Sleeve = GND
+
+#define MIDI_TX_PIN    4   // UART2_TX remappé → Tip jack TRS 3.5mm MIDI OUT
+
+
+// ============================================================================
+// ENCODEUR VOL/LUMI — volume (tourner) + luminosité (clic puis tourner)
+// ============================================================================
+// 🎓 Un seul encodeur contrôle 2 paramètres grâce à son bouton intégré :
+//    – tourner sans appuyer  → ajuste le VOLUME audio (0–100%)
+//    – clic court            → bascule en mode "luminosité"
+//    – tourner après le clic → ajuste la LUMINOSITÉ des LEDs (0–255)
+//    – un 2e clic            → revient au mode volume
+//    La LED ou le menu affiche quel paramètre est actif.
 //
-//    ⚠ Utiliser ADC1 (GPIO 32–39) et non ADC2 : ADC2 est désactivé
-//    quand le WiFi est actif. ADC1 est toujours disponible.
+//    100nF entre ROTA et GND : filtre anti-rebond hardware obligatoire.
 
-#define POT_VOLUME_PIN       36   // ADC1_CH0 — volume audio général    (0–100%)
-#define POT_BRIGHTNESS_PIN   39   // ADC1_CH3 — luminosité de la matrice (0–255)
-#define POT_RULES_PIN        34   // ADC1_CH6 — sélection règle GoL (B/S prédéfinie)
-
-
-// ============================================================================
-// ENCODEUR BPM — tempo du séquenceur (40–300 BPM)
-// ============================================================================
-// 🎓 Un encodeur rotatif EC11 génère 2 signaux décalés appelés CLK et DT.
-//    Quand on tourne, les impulsions arrivent dans un ordre différent selon
-//    le sens. En comparant CLK et DT, le firmware sait : gauche = –BPM, droite = +BPM.
-//    Cet encodeur n'a pas de bouton poussoir intégré.
-
-#define ENC_BPM_CLK    16   // signal d'horloge encodeur BPM
-#define ENC_BPM_DT     17   // signal de direction encodeur BPM
+#define ENC_VOL_ROTA   16   // signal A (quadrature)
+#define ENC_VOL_ROTB   17   // signal B (quadrature)
+#define ENC_VOL_SWCH   18   // clic = bascule volume ↔ luminosité
 
 
 // ============================================================================
-// ENCODEUR GAMME — gros encodeur central "valve"
+// ENCODEUR X — contrôleur droit (navigation horizontale / menus)
 // ============================================================================
-// 🎓 Ce gros encodeur sélectionne la gamme musicale : pentatonique, mineur,
-//    majeur, dorien... Son bouton (BTN) sert au changement de mode principal :
-//    appui court = confirme la sélection, appui long = bascule GoL ↔ Dessin.
-
-#define ENC_SCALE_CLK    18
-#define ENC_SCALE_DT     19
-#define ENC_SCALE_BTN    21   // bouton clic encodeur gamme
-
-
-// ============================================================================
-// ENCODEUR TIMBRE — preset sonore Mozzi
-// ============================================================================
-// 🎓 Phase 1 : le bouton Timbre (GPIO 27) est réutilisé comme Play/Pause
-//    (la machine n'a pas assez de GPIO libres pour un bouton dédié — voir note
-//    en bas de fichier). En Phase 2 : il resettera le timbre au preset 0.
-
-#define ENC_TIMBRE_CLK    22
-#define ENC_TIMBRE_DT     23
-#define ENC_TIMBRE_BTN    27   // ← Play/Pause en Phase 1
-
-#define BTN_PLAY_PIN   ENC_TIMBRE_BTN   // alias lisible pour le firmware
-
-
-// ============================================================================
-// ENCODEUR OCTAVE — octave de base (2–6)
-// ============================================================================
-// 🎓 L'octave déplace toutes les notes vers le haut ou le bas.
-//    Octave 4 = do médian du piano (MIDI note 60). Standard musical.
-//    Le bouton d'octave est réservé à la Phase 2.
-
-#define ENC_OCTAVE_CLK    13
-#define ENC_OCTAVE_DT     14
-#define ENC_OCTAVE_BTN     4   // Phase 2 — laisser non câblé en Phase 1
-
-
-// ============================================================================
-// ENCODEUR Y — axe vertical (mode dessin)
-// ============================================================================
-// 🎓 En mode Dessin, cet encodeur déplace le curseur de haut en bas.
-//    GPIO 32 et 33 sont parmi les plus "purs" de l'ESP32 : aucun rôle
-//    spécial au boot, support ADC et interruptions. Choix idéal.
+// 🎓 En mode GoL      : tourne pour régler un paramètre (BPM, gamme, etc.)
+//                       selon le menu affiché sur la matrice.
+//    En mode Dessin   : déplace le curseur horizontalement sur la grille.
+//    Clic court       : confirme une sélection dans le menu.
+//    Clic long        : retour au menu précédent / annulation.
 //
-// ⚠ GPIO 12 (bouton Y) : "strapping pin" — au démarrage, l'ESP32 lit
-//    cette broche pour choisir la tension d'alimentation du flash.
-//    Sur tous les modules WROOM-32 commerciaux, l'eFuse est déjà programmé
-//    → GPIO 12 est safe à utiliser. Mais : utiliser une résistance pullup
-//    EXTERNE 10kΩ (ne pas utiliser INPUT_PULLUP dans le code).
+//    100nF entre ROTA et GND recommandé.
 
-#define ENC_Y_CLK    32
-#define ENC_Y_DT     33
-#define ENC_Y_BTN    12   // ⚠ voir note ci-dessus — pullup externe 10kΩ requis
+#define ENC_X_ROTA   22   // signal A (quadrature)
+#define ENC_X_ROTB   23   // signal B (quadrature)
+#define ENC_X_SWCH   21   // clic = sélection / confirmation
 
 
 // ============================================================================
-// ENCODEUR X — axe horizontal (mode dessin)
+// ENCODEUR Y — contrôleur gauche (navigation verticale / menus)
 // ============================================================================
-// 🎓 En mode Dessin, cet encodeur déplace le curseur de gauche à droite.
-//    Combiné avec l'encodeur Y, on navigue dans la grille pour placer
-//    ou effacer des cellules à la main.
+// 🎓 Miroir de l'encodeur X, mais sur l'axe vertical.
+//    En mode GoL    : navigue entre les entrées de menu (haut/bas).
+//    En mode Dessin : déplace le curseur verticalement sur la grille.
+//    Clic court     : ouvre le menu principal / valide.
+//    Clic long      : bascule GoL ↔ Dessin.
 //
-// ⚠ GPIO 35 (CLK) : input-only, pas de pullup interne possible.
-//    → Ajouter une résistance pullup externe 10kΩ entre GPIO 35 et 3.3V.
-//
-// ⚠ GPIO 15 (DT) : strapping pin. Avec pullup (HIGH au boot) = boot normal. OK.
-//
-// ⚠ GPIO 2 (BTN) : la plupart des cartes ESP32-Dev ont une LED intégrée sur GPIO 2.
-//    Elle clignote pendant l'upload. En fonctionnement normal, c'est un GPIO standard.
+//    GPIO 32 et 33 sont parmi les plus "purs" de l'ESP32 :
+//    aucun rôle spécial au boot, support ADC et interruptions. Choix idéal.
 
-#define ENC_X_CLK     35   // ⚠ input-only → pullup externe 10kΩ requis
-#define ENC_X_DT      15   // ⚠ strapping pin, OK avec pullup HIGH
-#define ENC_X_BTN      2   // ⚠ LED onboard sur certaines cartes, OK après boot
+#define ENC_Y_ROTA   32   // signal A (quadrature)
+#define ENC_Y_ROTB   33   // signal B (quadrature)
+#define ENC_Y_SWCH   19   // clic = ouvre menu / bascule mode
 
 
 // ============================================================================
-// BOUTON RESET / NOUVELLE GRAINE
+// SWITCH ON/OFF (latching) — état binaire persistant
+// ============================================================================
+// 🎓 Un switch "latching" (à verrouillage) reste dans sa position :
+//    levé = ON, enfoncé = OFF (ou inversement selon le modèle).
+//    Contrairement à un bouton momentané, il mémorise physiquement l'état —
+//    même si l'ESP32 redémarre, la position du switch dit l'état actuel.
+//
+//    Usage typique : mode Dessin actif / inactif, MIDI on/off, etc.
+//    Le rôle exact est défini dans le firmware (pas fixé ici).
+
+#define SW_ONOFF_PIN    13   // switch latching — état lu au démarrage
+
+
+// ============================================================================
+// BOUTON PLAY/PAUSE (momentané silicone/caoutchouc)
+// ============================================================================
+// 🎓 Un bouton "momentané" ne retient pas sa position : il revient à lui-même
+//    dès qu'on relâche. C'est le firmware qui gère l'état (joue/pause).
+//    Avantage : pas de désynchronisation possible entre le bouton et le firmware
+//    (ex: si l'ESP32 redémarre, le bouton ne "dit" rien — c'est l'état logique
+//    sauvegardé qui prime).
+
+#define BTN_PLAY_PIN    14   // momentané : toggle play ↔ pause à chaque appui
+
+
+// ============================================================================
+// BOUTON RESET / NOUVELLE GRAINE — bouton BOOT physique de la carte
 // ============================================================================
 // 🎓 GPIO 0 = le bouton physique "BOOT" déjà présent sur la carte ESP32-Dev !
-//    On le réutilise intelligemment : appui court = nouvelle graine aléatoire,
-//    appui long = menu des formes prédéfinies (glider, blinker...).
+//    On le réutilise sans câblage supplémentaire.
+//    Appui court = nouvelle graine aléatoire (GoL repart d'un état différent).
+//    Appui long  = sélection d'une forme prédéfinie (glider, blinker…).
 //
-// ⚠ Ne PAS appuyer sur ce bouton pendant le démarrage de la carte :
-//    ça passerait en mode "download" (upload de firmware). En fonctionnement
-//    normal, c'est un bouton comme les autres.
+// ⚠ Ne PAS appuyer pendant le démarrage de la carte :
+//    ça passerait en mode "download" (upload de firmware).
 
 #define BTN_RESET_PIN    0   // = bouton BOOT physique sur la carte
 
@@ -188,9 +183,9 @@
 // ============================================================================
 // PARAMÈTRES MUSICAUX PAR DÉFAUT
 // ============================================================================
-// 🎓 Ces valeurs s'appliquent au démarrage. Les encodeurs les modifient ensuite.
-//    BPM = Beats Per Minute = tempo. 120 BPM = 2 battements par seconde (standard).
-//    En musique électronique : 80–140 BPM selon le style.
+// 🎓 Ces valeurs s'appliquent au démarrage.
+//    Les encodeurs X/Y (via le menu) les modifient ensuite.
+//    BPM = Beats Per Minute = tempo. 120 BPM = 2 battements/seconde (standard).
 
 #define BPM_DEFAULT       30
 #define BPM_MIN           10
@@ -199,7 +194,10 @@
 #define OCTAVE_MIN         1
 #define OCTAVE_MAX         5
 #define TIMBRE_DEFAULT     0   // index du preset Mozzi par défaut
-#define SCALE_DEFAULT      0   // 0=pentatonique, 1=mineur, 2=majeur, 3=dorien
+#define SCALE_DEFAULT      0   // 0=japonaise, 1=pentatonique, 2=penta mineure…
+
+#define VOLUME_DEFAULT    70   // 0–100 %
+#define BRIGHT_DEFAULT    80   // 0–255
 
 
 // ============================================================================
@@ -213,7 +211,7 @@
 //    B6/S567 "Dense"  = densité ~4.4%, idéale pour la musique (moins dense = plus musical)
 
 #define GOL_RULE_DEFAULT    0   // index dans le tableau des règles (voir gol.h)
-                                // 0=Conway B3S23, 1=Coral B5S45, 2=Dense B6S567...
+                                // 0=Conway B3S23, 1=Coral B5S45, 2=Dense B6S567…
 
 // ms par tick (= 1 colonne balayée) = 60s / BPM / 16 colonnes
 #define GOL_TICK_MS_DEFAULT  (60000UL / BPM_DEFAULT / GRID_COLS)
@@ -242,39 +240,32 @@
 
 
 // ============================================================================
-// NOTE SUR LES GPIO — Résumé des 24 broches utilisées
+// NOTE SUR LES GPIO — Résumé des 15 broches utilisées
 // ============================================================================
 /*
  *  GPIO  | Usage                      | Remarque
  *  ------|----------------------------|--------------------------------------------
  *    0   | BTN_RESET                  | ⚠ = bouton BOOT physique
- *    2   | ENC_X_BTN                  | ⚠ LED onboard sur certaines cartes
- *    4   | ENC_OCTAVE_BTN (Phase 2)   |
- *    5   | LED_DATA_PIN               | FastLED WS2812B
- *   12   | ENC_Y_BTN                  | ⚠ strapping → pullup externe 10kΩ
- *   13   | ENC_OCTAVE_CLK             |
- *   14   | ENC_OCTAVE_DT              |
- *   15   | ENC_X_DT                   | ⚠ strapping, OK avec pullup
- *   16   | ENC_BPM_CLK                |
- *   17   | ENC_BPM_DT                 |
- *   18   | ENC_SCALE_CLK              |
- *   19   | ENC_SCALE_DT               |
- *   21   | ENC_SCALE_BTN              |
- *   22   | ENC_TIMBRE_CLK             |
- *   23   | ENC_TIMBRE_DT              |
- *   25   | AUDIO_LEFT (DAC1)          |
- *   26   | AUDIO_RIGHT (DAC2)         |
- *   27   | ENC_TIMBRE_BTN / Play      |
- *   32   | ENC_Y_CLK                  |
- *   33   | ENC_Y_DT                   |
- *   34   | POT_RULES (ADC)            | input-only
- *   35   | ENC_X_CLK                  | ⚠ input-only → pullup externe 10kΩ
- *   36   | POT_VOLUME (ADC)           | input-only
- *   39   | POT_BRIGHTNESS (ADC)       | input-only
+ *    4   | MIDI_TX_PIN (UART2_TX)     | MIDI OUT → Tip jack TRS 3.5mm Type A
+ *    5   | LED_DATA_PIN               | FastLED WS2812B — résistance 300Ω série
+ *   13   | SW_ONOFF (latching)        |
+ *   14   | BTN_PLAY (momentané)       |
+ *   16   | ENC_VOL_ROTA               | + 100nF entre ROTA et GND
+ *   17   | ENC_VOL_ROTB               |
+ *   18   | ENC_VOL_SWCH               |
+ *   19   | ENC_Y_SWCH                 |
+ *   21   | ENC_X_SWCH                 |
+ *   22   | ENC_X_ROTA                 | + 100nF entre ROTA et GND
+ *   23   | ENC_X_ROTB                 |
+ *   25   | AUDIO_LEFT (DAC1)          | → PAM8403 L + Tip  jack TRS audio
+ *   26   | AUDIO_RIGHT (DAC2)         | → PAM8403 R + Ring jack TRS audio
+ *   32   | ENC_Y_ROTA                 | + 100nF entre ROTA et GND
+ *   33   | ENC_Y_ROTB                 |
  *  ------|----------------------------|--------------------------------------------
- *  Total : 24 GPIO utilisés sur ~25 disponibles sur l'ESP32-WROOM-32
+ *  Total : 16 GPIO utilisés
  *
  *  GPIO non utilisés (réservés) :
- *    1, 3  : UART TX/RX — utilisés pour le moniteur série / upload
+ *    1, 3  : UART TX/RX — moniteur série / upload
  *    6–11  : Flash SPI interne — JAMAIS toucher
+ *   34–39  : ADC1 input-only — libres si besoin futur
  */
