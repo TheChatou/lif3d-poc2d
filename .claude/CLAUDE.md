@@ -15,30 +15,29 @@ Doc technique complète : `docs/LIF2D_CONTEXT_CLAUDECODE.md`
 
 ## Matériel
 
-### À moi (perso)
-| Composant | Modèle | Notes |
+> **Source de vérité à jour : `docs/CDC_LIF2D_Beta1_20260611.md` (v1.0 validé)**
+> Le tableau ci-dessous est un résumé — consulter le CDC pour la liste complète et les prix.
+
+### En stock
+| Composant | Modèle réel | Notes |
 |---|---|---|
-| MCU | ESP32-D | DAC GPIO 25/26 — config.h ok |
-| Matrice LED | WS2812B 16×16 flexible | 1 GPIO (FastLED) |
-| Ampli audio | PAM8403 HW-894 BT 5.0 | 5W+5W @ 4Ω — LINE IN 3.3V compatible DAC ESP32 |
-| HP | 2× 28mm 4Ω 3W | Confirmé 4Ω |
+| MCU | Clone USB-C 30-pin avec **ESP32-WROOM-32D** (puce ESP32-D0WD) | DAC GPIO 25/26 ✅ — ref: `docs/datasheet/ESP32-D_board_reference.md` |
+| Matrice LED | WS2812B 16×16 flexible 256 LEDs | 5V, signal DATA 3.3V + résistance 300Ω |
+| Ampli audio | PAM8403 (module simple, 4 trous sorties HP) | **3W+3W @ 4Ω** à 5V — LINE IN 3.3V ✅ |
+| HP | 2× 28mm 4Ω 3W | ✅ Appairés exactement avec le PAM8403 |
 | Hall sensors | US5881 ×10 | Réservés LIF3D |
 | Aimants | NdFeB N35 5×2mm ×10 | Réservés LIF3D |
-| Alimentation | 12V/2A BF-1220 | 24W max → FastLED.setBrightness(128) obligatoire |
 | Ampli I²S | MAX98357A | Réservé LIF3D |
+| BF-1220 12V/2A | Alim secteur | ⚠ Mis de côté — remplacée par LRS-75-5 pour LIF2D, garder pour LIF3D |
+| LM2596S | Buck converter lab | ⚠ Mis de côté — plus nécessaire avec LRS-75-5 |
 
-### Du lab (école)
-| Composant | Modèle | Notes |
-|---|---|---|
-| Buck converter | LM2596S ajustable | 12V→5V/3A — régler à 5V avec multimètre |
-
-### À commander
-| Composant | Notes |
+### À commander (voir CDC section 5 pour les détails et prix)
+| Composant | Priorité |
 |---|---|
-| Potentiomètres rotatifs ×4 | Volume, Luminosité, Timbre, Règles |
-| Encodeurs EC11 ×2 | BPM, Gamme |
-| Boutons poussoir ×2 | Play/Pause, Reset |
-| Potentiomètres linéaires ×2 | Luminosité fine, Morph règles |
+| **Mean Well LRS-75-5** (5V/14A/70W) | 🔴 CRITIQUE — alimentation principale |
+| Potentiomètres rotatifs ×4, EC11 ×2, boutons ×2, pots linéaires ×2 | 🔴 CRITIQUE |
+| Jack TRS 3.5mm simple 3 broches (MIDI OUT) + jack TRS commuté 5 broches PJ-302M (Audio OUT auto-mute) + résistances 220Ω | 🔴 CRITIQUE |
+| Résistances 1Ω / 1W ×2 | 🟡 UTILE — protection HP |
 
 ---
 
@@ -56,15 +55,20 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **Mozzi ^2.0.0** — synthèse audio
 
 ### Contraintes importantes
-- **MCU : ESP32-D** (ESP32-WROOM-32 ou similaire) — a 2 DAC hardware (GPIO 25/26) ✅
-- FastLED : utiliser `FASTLED_ESP32_I2S true` pour éviter conflit WiFi
-- FastLED : pin data GPIO_NUM_48 proposé ; éviter GPIO 0, 1, 2
-- **FastLED.setBrightness(128) max** — alimentation 12V/2A = 24W, matrice à fond tire >3A @ 5V
+- **MCU : ESP32-WROOM-32D** (clone USB-C 30 pins) — 2 DAC hardware GPIO25 (L) + GPIO26 (R) ✅
+- FastLED : utiliser `FASTLED_ESP32_I2S true` pour éviter conflit timers internes
+- FastLED : pin DATA → **GPIO5** (pas strapping, pas conflit ADC2/Mozzi) ; éviter GPIO 0, 2, 4, 12, 15
+- **Protection puissance LEDs** : `FastLED.setMaxPowerInVoltsAndMilliamps(5, 10000)` dans setup() — pas setBrightness seul
+- Alimentation : **Mean Well LRS-75-5 (5V/14A)** — tout en 5V direct, aucun buck intermédiaire
 - Mozzi + FastLED → cœurs FreeRTOS séparés OBLIGATOIRE (conflit d'interruptions sinon)
-- Encodeurs EC11 : debounce obligatoire (100nF ou logiciel), utiliser `attachInterrupt`
-- Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` ou bitfield `uint16_t[16]`
-- ADC ESP32-S3 : éviter GPIO 0, 1 au boot ; préférer GPIO 4-10
-- PAM8403 HW-894 : entrée 3.3V logique ou via condensateur liaison AC 100µF
+- Encodeurs EC11 : debounce obligatoire (100nF sur ROTA + filtre 5ms logiciel), utiliser `attachInterrupt`
+- Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` pour l'âge
+- ADC : utiliser **uniquement ADC1** (GPIO 32–39) — ADC2 incompatible avec certains timers Mozzi
+- PAM8403 : entrée LINE IN 3.3V direct depuis DAC ESP32 ✅ — optionnel : condo 100µF si bruit DC
+- **GPIO DATA WS2812B** : résistance 300Ω série obligatoire (signal 3.3V pour composant 5V)
+- **MIDI OUT** : GPIO4 (UART2_TX remappé) → TRS 3.5mm Type A — `Serial2.begin(31250, SERIAL_8N1, -1, 4)`
+- **Audio OUT** : GPIO25/26 (DAC) → jack TRS commuté 5 broches PJ-302M → PAM8403 + sortie ligne — auto-mute HP sans code
+- **HP protection** : résistances 1Ω/1W en série sur sorties L+ et R+ du PAM8403
 
 ---
 
@@ -160,10 +164,13 @@ Autres disponibles : B5S45 (Coral), B4S5 (Builder), B5S5 (Sym), B36S23 (Highlife
 - [x] Simulateur Python (`simulator/sim.py` v4) avec audio .wav + filtre biquad
 - [x] Gammes musicales validées à l'écoute (Japonaise prioritaire)
 - [x] Paramètres sonores validés (cloche de cristal 15ms attack, 350ms decay)
-- [x] Hardware reçu : WS2812B, PAM8403 HW-894, HP 28mm ×2, alim 12V/2A
+- [x] Hardware en stock : WS2812B, PAM8403, HP 28mm ×2, ESP32-WROOM-32D (clone USB-C)
+- [x] CDC v1.0 validé (`docs/CDC_LIF2D_Beta1_20260611.md`) — source de vérité du projet
+- [x] Bilan de puissance validé — chaîne LRS-75-5 5V/14A (`docs/analyses/20260612_bilan_puissance.md`)
+- [x] Pinout ESP32-D documenté (`docs/datasheet/ESP32-D_board_reference.md`)
 
 ### À faire (ordre prioritaire)
-- [ ] **Commander buck converter 12V→5V + contrôleurs physiques**
+- [ ] **Commander Mean Well LRS-75-5 + contrôleurs physiques + DIN-5 + TRS + résistances** (voir CDC section 5)
 - [ ] `src/main.cpp` — test LED statique (first light !)
 - [ ] `src/leds.cpp` — rendu WS2812B via FastLED
 - [ ] `src/controls.cpp` — encodeurs (interruptions) + ADC potars
@@ -189,6 +196,19 @@ Quand Felix demande une analyse, un compte-rendu, un bilan, une comparaison ou t
 - Nommer le fichier avec la date et un slug court : `YYYYMMDD_sujet.md`
 - Annoncer dans le CLI le chemin du fichier créé, pas le contenu complet
 - Ne jamais sortir un long document directement dans le terminal
+
+### Notes pédagogiques — à tenir à jour
+
+**À chaque fois qu'un concept est expliqué en conversation**, le noter dans `docs/pedago/` :
+- Nommer le fichier `YYYYMMDD_sujet.md`
+- Couvrir : définition, analogie, exemple concret sur LIF2D, pièges à éviter
+- Un fichier par domaine (pas un fichier par question)
+- Mettre à jour un fichier existant si le sujet est déjà couvert
+
+Fichiers pédago existants :
+- `docs/pedago/20260612_electronique_alimentation.md` — V/A/W, buck, LDO, OCP/OVP/SCP, LRS-75-5
+- `docs/pedago/20260612_esp32_gpio_reference.md` — strapping pins, input-only, ADC1 vs ADC2, UART, GND commun
+- `docs/pedago/20260612_audio_midi_circuit.md` — PAM8403 (3W réels), protection HP, UART/MIDI, DIN-5, TRS
 
 ### Pédagogie — priorité absolue
 
