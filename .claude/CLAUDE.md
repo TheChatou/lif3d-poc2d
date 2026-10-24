@@ -72,7 +72,7 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **Protection puissance LEDs** : `FastLED.setMaxPowerInVoltsAndMilliamps(5, 10000)` dans setup() — pas setBrightness seul
 - Alimentation : **Mean Well LRS-75-5 (5V/14A)** — tout en 5V direct, aucun buck intermédiaire
 - Mozzi + FastLED → cœurs FreeRTOS séparés OBLIGATOIRE (conflit d'interruptions sinon)
-- Encodeurs EC11 : debounce obligatoire (100nF sur ROTA + filtre 5ms logiciel), utiliser `attachInterrupt`
+- Encodeurs EC11 : décodage quadrature par table sur interruptions (`src/ui/input.cpp`) = anti-rebond logiciel suffisant. Condo 100nF **facultatif**, et s'il est mis : **entre ROTA et GND (en parallèle), JAMAIS en série** sur le fil (erreur trouvée le 2026-10-25)
 - Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` pour l'âge
 - ADC : utiliser **uniquement ADC1** (GPIO 32–39) — ADC2 incompatible avec certains timers Mozzi
 - PAM8403 : entrée LINE IN 3.3V direct depuis DAC ESP32 ✅ — optionnel : condo 100µF si bruit DC
@@ -80,6 +80,9 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **MIDI OUT** : GPIO4 (UART2_TX remappé) → TRS 3.5mm Type A — `Serial2.begin(31250, SERIAL_8N1, -1, 4)`
 - **Audio OUT** : GPIO25/26 (DAC) → jack TRS commuté 5 broches PJ-302M → PAM8403 + sortie ligne — auto-mute HP sans code
 - **HP protection** : résistances 1Ω/1W en série sur sorties L+ et R+ du PAM8403
+- **Procédure de flash (boîte montée)** : débrancher le fil **VIN** de l'ESP32 (garder GND), USB = ESP32 seul, secteur = matrice + amplis. **Jamais USB + VIN branchés ensemble** (le 5 V USB alimenterait toute la boîte via VIN). Rebrancher VIN pour l'usage autonome. Port réel : `/dev/ttyUSB0` → `--upload-port /dev/ttyUSB0`
+- **FastLED figé en 3.10.3** dans `env:ui_test` (la 3.10.8 a donné une matrice toute blanche) — ne jamais remettre `^`
+- **Orientation matrice** : `ORIENT_TRANSPOSE 1` seul dans `src/ui/display.cpp` (validé sur la boîte)
 
 ---
 
@@ -92,6 +95,9 @@ src/
 ├── leds.h / leds.cpp ← pilotage WS2812B via FastLED
 ├── audio.h / audio.cpp ← séquenceur Mozzi, mapping GoL→notes
 └── controls.h / controls.cpp ← encodeurs, potentiomètres, boutons
+src/ui/              ← système de menus (polices, affichage, entrées, hub, pages, BOOM…) — testé via env:ui_test
+test_ui/main.cpp     ← firmware de test des menus (sans son)
+tools/fonts_src.py + gen_fonts.py ← polices pixel (source) → src/ui/font_data.h
 include/
 └── config.h          ← toutes les constantes (#define) et attribution pins GPIO
 tools/
@@ -201,14 +207,16 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [x] First light : firmware de test (chiffres/texte 3×5/glider) tourne sur la matrice
 
 ### À faire — phase software (plan d'attaque validé 2026-10-24, une étape à la fois)
-- [ ] **Étape 0 — Ménage git** : commit du travail en attente + tag `hardware-done`
-- [ ] **Étape 1 — Conception UI (sur papier/en conversation)** : trancher `docs/analyses/20261024_ui_grammaire_controles.md` §6, compléter l'inventaire des réglages §5, figer la grammaire de gestes → spec UI v1
-- [ ] **Étape 2 — Simulateur web fidèle au boîtier** (`simulator-web/`) : rendu du boîtier réel (photos `docs/photos/` + FreeCAD), matrice 16×16, 2 molettes + ▶ ; écrans live / réglages / presets ; logique de menu portable vers C++
-- [ ] **Étape 3 — Jouer avec la maquette et itérer** jusqu'à ce que l'ergonomie soit évidente (test par un tiers plus tard)
-- [ ] **Étape 4 — Firmware contrôles + menus** : `src/controls.cpp` (encodeurs, clics, appuis longs), `src/menu.*` (porté du simulateur) + sauvegarde NVS, `src/leds.cpp` (rendu des écrans)
-- [ ] **Étape 5 — Audio** : `src/audio.cpp` séquenceur Mozzi piloté par GoL + **réglage des gains TDA2822 / PAM8403** (son strident selon les volumes des potards des amplis — comprendre le "gain staging" et fixer les bons niveaux)
+- [x] **Étape 0 — Ménage git** (2026-10-24, tag `hardware-done`) : commit du travail en attente + tag `hardware-done`
+- [x] **Étape 1 — Conception UI** (2026-10-24) : gestes, conventions, écrans, typos → `docs/analyses/20261024_ui_grammaire_controles.md`, `20261024_actions_et_conventions_machines.md`, `20261024_ecrans_maquettes_16x16.md` (§0 = révision v2 qui fait foi), `20261024_typographies_16x16.md`
+- [x] ~~Étape 2 — Simulateur web~~ → remplacé par un **firmware de test directement sur la boîte** (`env:ui_test`, `src/ui/` + `test_ui/main.cpp`) — 1re version validée "dans l'ensemble" par Felix le 2026-10-25
+- [ ] **Étape 3 — Itérer sur `ui_test`** : corriger les petits bugs, déplacement dans les presets peu pratique, retester la lisibilité des pages de réglages (variante "réglage en gros" si besoin)
+- [ ] **Étape 3b — Musique dans `ui_test`** (prévu 2026-10-26) : brancher Mozzi/`audio.cpp` sur la grille GoL de l'UI (attention : Mozzi + FastLED sur le même cœur → craquements possibles)
+- [ ] **Étape 3c — Réparer les 2 encodeurs** (matériel) : condo 100 nF câblé EN SÉRIE sur la broche A → le ponter / le retirer (voir `docs/progress.md` 2026-10-25), puis `ENC_SINGLE_CHANNEL 0` dans `src/ui/input.cpp`
+- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal + sauvegarde NVS
+- [ ] **Étape 5 — Audio** : relier les réglages (BPM, gamme, timbre…) à `audio.cpp` + **gain staging TDA2822 / PAM8403**
 - [ ] **Étape 6 — Assemblage** : `src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
-- [ ] À valider en route : affectation A/B des broches des encodeurs (sens inversable en logiciel)
+- [ ] **Interférences LEDs → audio** (matériel, au retour) : `docs/analyses/20261025_interferences_leds_audio.md`
 - [x] Condos de découplage 100µF en sortie TDA2822 : présents sur le module (vérifié visuellement 2026-10-24)
 
 ---

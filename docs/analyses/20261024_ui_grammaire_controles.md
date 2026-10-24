@@ -136,7 +136,20 @@ Valeurs issues de `include/config.h` quand elles existent. Fréquence = estimati
 
 ---
 
-## 6. Questions ouvertes pour la prochaine séance
+## 6. Décisions prises
+
+| Date | Décision | Pourquoi |
+|---|---|---|
+| 2026-10-24 | **Écran live : molette gauche (A) = luminosité, molette droite (B) = volume**, en rotation simple, sans menu | Gestes universels (lampe + radio), aucun risque de "casser" la musique par erreur ; volume 0 = mode lumière seule, luminosité min = mode nuit — sans menu dédié |
+| 2026-10-24 | Luminosité : **plancher** — jamais 100 % noir (minimum visible ou pixel qui "respire" au cran 0) | Sinon la boîte paraît éteinte/en panne |
+| 2026-10-24 | Volume 0 : **icône mute** affichée 1–2 s | Éviter de croire à une panne de son |
+| 2026-10-24 | Luminosité = retour visuel implicite (l'écran change) ; volume = overlay barre temporaire | |
+
+→ Conséquence : BPM, gamme, etc. passent tous par le menu.
+
+---
+
+## 7. Questions ouvertes pour la prochaine séance
 
 1. Métaphore ardoise (A = X, B = Y) ou classique (A = quoi, B = combien) ?
 2. Quels réglages 🔥 méritent un accès direct depuis le live ? (Volume ? BPM ? les deux ?)

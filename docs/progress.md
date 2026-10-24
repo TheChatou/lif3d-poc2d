@@ -98,3 +98,33 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 - [ ] Compléter l'inventaire des réglages (§5)
 - [ ] Simulateur web : rendu du boîtier réel + matrice + 2 molettes + bouton ▶
 - [ ] Puis firmware : `controls.cpp` (encodeurs), `menu`, sauvegarde NVS
+
+---
+## 2026-10-25 — Premier firmware de test des menus (`ui_test`) sur la boîte
+
+**Fait :**
+- Firmware `ui_test` (env PlatformIO séparé, sans son) : modules réutilisables `src/ui/` (polices, affichage, entrées, hub, pages de réglages, BOOM, presets, DIAG) + `test_ui/main.cpp` ; polices générées depuis `tools/fonts_src.py` par `tools/gen_fonts.py`
+- Orientation de la matrice validée : `ORIENT_TRANSPOSE = 1` seul (`src/ui/display.cpp`)
+- DAC fixé à mi-tension quand il n'y a pas de son → plus d'entrée d'ampli flottante
+- Fiche interférences : `docs/analyses/20261025_interferences_leds_audio.md`
+
+**Problèmes rencontrés :**
+- ⚠️ **Matrice toute blanche au 1er flash** : FastLED non figé (`^3.6.0`) → nouvel env a pris la 3.10.8. Corrigé : `ui_test` figé sur **FastLED 3.10.3** (version validée). Ajout d'une image de sécurité (1 LED rouge 2 s) + luminosité 20 au démarrage
+- ⚠️ **Flash qui échoue + USB qui alimente toute la boîte** : secteur coupé, le 5 V USB ressort par VIN et alimente matrice + amplis → le port s'écroule. **Procédure de flash** : débrancher le fil VIN de l'ESP32 (garder GND), USB pour l'ESP32 seul, secteur pour le reste. Jamais USB + VIN branchés ensemble. Rebrancher VIN pour l'usage autonome
+- ⚠️ **Molettes : la rotation ne fait rien** (clics OK). Diagnostic par mouchard série : les broches A (GPIO22, GPIO32) restent à 1 en permanence, seules les B bougent. **Cause : condensateur 100 nF câblé EN SÉRIE sur le fil A** (au lieu d'entre A et GND), sur les 2 encodeurs. **Réparation** : retirer le condo et rejoindre les 2 bouts de fil (Wago/domino, pas besoin de souder) ; le condo est facultatif (décodeur à table = anti-rebond logiciel), sinon le mettre entre A et C (GND) de l'encodeur. En attendant : `ENC_SINGLE_CHANNEL 1` dans `src/ui/input.cpp` (tourner = +1, tourner molette enfoncée = −1) → **remettre à 0 après réparation**
+- Bruit audio corrélé à l'affichage des LEDs, surtout sur un HP → matériel (condensateurs / masses), mis de côté (voir fiche)
+
+**Retours UX de Felix :**
+- Les pages de réglages en "lignes de LEDs" n'ont pas été comprises (vues figées faute de rotation) → retester une fois la navigation possible ; variante prévue : réglage sélectionné en grand (nom + valeur), lignes en repère discret
+- Bilan Felix (fin de session) : "pas mal dans l'ensemble, plus ou moins ce que j'avais en tête". Déplacement dans les presets peu pratique (aggravé par le mode dépannage 1 contact) ; quelques petits bugs ressentis → à lister à la prochaine session
+
+**Réparation encodeurs — précision :** le condensateur est **soudé directement sur la broche A** de l'encodeur (impossible de juste couper un fil + Wago). Options, de la plus simple à la plus propre :
+1. **Ponter le condensateur** : souder un petit bout de fil (ou une goutte d'étain) entre ses 2 pattes → il est court-circuité = A relié directement au fil du GPIO. Aucun dessoudage.
+2. Dessouder le condensateur, souder le fil du GPIO directement sur la broche A.
+3. (optionnel) remettre le condo entre A et C (GND) de l'encodeur.
+
+**Prochaines étapes :**
+- [ ] 2026-10-26 : musique dans `ui_test` (Mozzi + grille GoL de l'UI)
+- [ ] Soudure des 2 encodeurs (option 1 ci-dessus) puis `ENC_SINGLE_CHANNEL 0`
+- [ ] Lister et corriger les petits bugs UI ; améliorer la navigation dans les presets
+- [ ] Figer aussi FastLED 3.10.3 dans `env:esp32dev` et `env:led_test` (encore en `^3.6.0`)
