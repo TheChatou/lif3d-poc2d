@@ -16,12 +16,14 @@
  *   Certaines broches ont des rôles spéciaux au démarrage ("strapping pins").
  *   Chaque cas particulier est documenté ci-dessous.
  *
- * Contrôleurs physiques (5 total) :
- *   – Encodeur VOL/LUMI  : tourner = volume, clic = bascule vers luminosité
- *   – Encodeur X (droite) : navigation horizontale + menu
- *   – Encodeur Y (gauche) : navigation verticale  + menu
- *   – Switch latching     : mode on/off (ex. mode dessin)
- *   – Bouton silicone     : play/pause (momentané)
+ * Contrôleurs physiques (3 total, design "ardoise magique" révisé 2026-08-24) :
+ *   – Encodeur A (gauche) : navigation menu / valeur, selon écran actif
+ *   – Encodeur B (droite) : navigation menu / valeur, selon écran actif
+ *   – Bouton silicone     : play/pause (momentané), centré entre les 2 encodeurs
+ *   Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL)
+ *   passe par un menu affiché sur la matrice LED, navigué avec A/B.
+ *   Plus de switch on/off séparé : géré par la prise secteur (interrupteur
+ *   intégré) — zéro GPIO consommé pour l'alimentation.
  */
 
 
@@ -59,16 +61,19 @@
 
 
 // ============================================================================
-// AUDIO — DAC intégré ESP32 → amplificateur PAM8403 + jack TRS 3.5mm
+// AUDIO — DAC ESP32 → TDA2822 → jack PJ3410 5 broches → PAM8403 → HP
 // ============================================================================
 // 🎓 DAC = Digital-to-Analog Converter.
 //    L'ESP32 génère un nombre (0–255) → le DAC le convertit en tension (0–3.3V).
-//    Ce signal part en parallèle vers :
-//      – le PAM8403 (amplifie pour les HP intégrés)
-//      – le jack TRS 3.5mm stéréo (sortie ligne vers DAW / ampli externe)
+//    Chaîne câblée (schéma as-built 2026-10-24, docs/photos/) :
+//      DAC → TDA2822 (ampli casque) → T/R du jack 5 broches
+//      jack VIDE   : T↔TS et R↔RS fermés → le signal continue vers
+//                    PAM8403 L/R IN → HP internes
+//      jack BRANCHÉ: TS/RS s'ouvrent → HP coupés, son dans le casque
+//    🎓 C'est un mute "mécanique" : zéro ligne de code pour basculer HP/casque.
 
-#define AUDIO_LEFT_PIN    25   // DAC1 → PAM8403 L + Tip  jack TRS audio
-#define AUDIO_RIGHT_PIN   26   // DAC2 → PAM8403 R + Ring jack TRS audio
+#define AUDIO_LEFT_PIN    25   // DAC1 → TDA2822 L IN → Tip jack (→ TS → PAM8403 L)
+#define AUDIO_RIGHT_PIN   26   // DAC2 → TDA2822 R IN → Ring jack (→ RS → PAM8403 R)
 
 
 // ============================================================================
@@ -91,67 +96,38 @@
 
 
 // ============================================================================
-// ENCODEUR VOL/LUMI — volume (tourner) + luminosité (clic puis tourner)
+// ENCODEUR A — gauche (navigation menu / valeur, selon contexte)
 // ============================================================================
-// 🎓 Un seul encodeur contrôle 2 paramètres grâce à son bouton intégré :
-//    – tourner sans appuyer  → ajuste le VOLUME audio (0–100%)
-//    – clic court            → bascule en mode "luminosité"
-//    – tourner après le clic → ajuste la LUMINOSITÉ des LEDs (0–255)
-//    – un 2e clic            → revient au mode volume
-//    La LED ou le menu affiche quel paramètre est actif.
+// 🎓 Design final "ardoise magique" (révisé 2026-08-24) : plus qu'UN SEUL
+//    bouton poussoir (play/pause) et DEUX encodeurs, un de chaque côté.
+//    Ces 2 encodeurs pilotent TOUT le paramétrage (BPM, gamme, timbre,
+//    octave, luminosité, règles GoL...) via un menu affiché sur la
+//    matrice LED 16×16 — plus de rôle fixe "volume" ou "X/Y" séparé.
+//    Rôle exact (navigation vs valeur) décidé par le firmware selon
+//    l'écran de menu actif, pas câblé en dur ici.
 //
 //    100nF entre ROTA et GND : filtre anti-rebond hardware obligatoire.
-
-#define ENC_VOL_ROTA   16   // signal A (quadrature)
-#define ENC_VOL_ROTB   17   // signal B (quadrature)
-#define ENC_VOL_SWCH   18   // clic = bascule volume ↔ luminosité
-
-
-// ============================================================================
-// ENCODEUR X — contrôleur droit (navigation horizontale / menus)
-// ============================================================================
-// 🎓 En mode GoL      : tourne pour régler un paramètre (BPM, gamme, etc.)
-//                       selon le menu affiché sur la matrice.
-//    En mode Dessin   : déplace le curseur horizontalement sur la grille.
-//    Clic court       : confirme une sélection dans le menu.
-//    Clic long        : retour au menu précédent / annulation.
 //
-//    100nF entre ROTA et GND recommandé.
+//    ⚠ Anciennement ENC_X. L'ancien 3e jeu ENC_VOL (GPIO16/17/18) est
+//    supprimé — un seul des 3 jeux d'origine ne survit pas à la
+//    simplification à 2 encodeurs physiques.
 
-#define ENC_X_ROTA   22   // signal A (quadrature)
-#define ENC_X_ROTB   23   // signal B (quadrature)
-#define ENC_X_SWCH   21   // clic = sélection / confirmation
+#define ENC_A_ROTA   22   // signal A (quadrature)
+#define ENC_A_ROTB   23   // signal B (quadrature)
+#define ENC_A_SWCH   21   // clic = sélection / confirmation
 
 
 // ============================================================================
-// ENCODEUR Y — contrôleur gauche (navigation verticale / menus)
+// ENCODEUR B — droite (navigation menu / valeur, selon contexte)
 // ============================================================================
-// 🎓 Miroir de l'encodeur X, mais sur l'axe vertical.
-//    En mode GoL    : navigue entre les entrées de menu (haut/bas).
-//    En mode Dessin : déplace le curseur verticalement sur la grille.
-//    Clic court     : ouvre le menu principal / valide.
-//    Clic long      : bascule GoL ↔ Dessin.
+// 🎓 Miroir de l'encodeur A. GPIO 32/33 sont parmi les plus "purs" de
+//    l'ESP32 : aucun rôle spécial au boot, support ADC et interruptions.
 //
-//    GPIO 32 et 33 sont parmi les plus "purs" de l'ESP32 :
-//    aucun rôle spécial au boot, support ADC et interruptions. Choix idéal.
+//    ⚠ Anciennement ENC_Y.
 
-#define ENC_Y_ROTA   32   // signal A (quadrature)
-#define ENC_Y_ROTB   33   // signal B (quadrature)
-#define ENC_Y_SWCH   19   // clic = ouvre menu / bascule mode
-
-
-// ============================================================================
-// SWITCH ON/OFF (latching) — état binaire persistant
-// ============================================================================
-// 🎓 Un switch "latching" (à verrouillage) reste dans sa position :
-//    levé = ON, enfoncé = OFF (ou inversement selon le modèle).
-//    Contrairement à un bouton momentané, il mémorise physiquement l'état —
-//    même si l'ESP32 redémarre, la position du switch dit l'état actuel.
-//
-//    Usage typique : mode Dessin actif / inactif, MIDI on/off, etc.
-//    Le rôle exact est défini dans le firmware (pas fixé ici).
-
-#define SW_ONOFF_PIN    13   // switch latching — état lu au démarrage
+#define ENC_B_ROTA   32   // signal A (quadrature)
+#define ENC_B_ROTB   33   // signal B (quadrature)
+#define ENC_B_SWCH   19   // clic = ouvre menu / bascule mode
 
 
 // ============================================================================
@@ -240,29 +216,42 @@
 
 
 // ============================================================================
-// NOTE SUR LES GPIO — Résumé des 15 broches utilisées
+// COMPOSANTS PASSIFS — résistances / condensateurs du câblage (hors GPIO)
+// ============================================================================
+// 🎓 Ce ne sont pas des broches ESP32, mais des valeurs de composants à
+//    respecter au câblage — regroupées ici pour ne pas les perdre de vue.
+
+#define R_MIDI_OHM          220   // ×2 — protection boucle de courant MIDI OUT (GPIO4 → Tip, +3.3V → Ring)
+#define R_HP_PROTECT_OHM      1   // ×2, 1W — en série sur les sorties L+/R+ du PAM8403 vers les HP
+#define C_ENC_DEBOUNCE_NF   100   // ×3 (une par ROTA d'encodeur) — entre ROTA et GND, anti-rebond hardware
+#define C_TDA2822_OUT_UF    100   // ×2 — découplage DC en sortie du module TDA2822 (T/R du jack)
+                                  // ⚠ à vérifier au multimètre : probablement déjà intégrés sur le module reçu
+
+
+// ============================================================================
+// NOTE SUR LES GPIO — Résumé des broches utilisées
 // ============================================================================
 /*
  *  GPIO  | Usage                      | Remarque
  *  ------|----------------------------|--------------------------------------------
- *    0   | BTN_RESET                  | ⚠ = bouton BOOT physique
- *    4   | MIDI_TX_PIN (UART2_TX)     | MIDI OUT → Tip jack TRS 3.5mm Type A
+ *    0   | BTN_RESET                  | ⚠ = bouton BOOT physique, pas un contrôle du boîtier
+ *    4   | MIDI_TX_PIN (UART2_TX)     | MIDI OUT → Tip jack TRS 3 broches (+ R_MIDI_OHM ×2)
  *    5   | LED_DATA_PIN               | FastLED WS2812B — résistance 300Ω série
- *   13   | SW_ONOFF (latching)        |
- *   14   | BTN_PLAY (momentané)       |
- *   16   | ENC_VOL_ROTA               | + 100nF entre ROTA et GND
- *   17   | ENC_VOL_ROTB               |
- *   18   | ENC_VOL_SWCH               |
- *   19   | ENC_Y_SWCH                 |
- *   21   | ENC_X_SWCH                 |
- *   22   | ENC_X_ROTA                 | + 100nF entre ROTA et GND
- *   23   | ENC_X_ROTB                 |
- *   25   | AUDIO_LEFT (DAC1)          | → PAM8403 L + Tip  jack TRS audio
- *   26   | AUDIO_RIGHT (DAC2)         | → PAM8403 R + Ring jack TRS audio
- *   32   | ENC_Y_ROTA                 | + 100nF entre ROTA et GND
- *   33   | ENC_Y_ROTB                 |
+ *   14   | BTN_PLAY (momentané)       | Seul bouton du boîtier, centré entre les 2 encodeurs
+ *   19   | ENC_B_SWCH                 |
+ *   21   | ENC_A_SWCH                 |
+ *   22   | ENC_A_ROTA                 | + C_ENC_DEBOUNCE_NF entre ROTA et GND
+ *   23   | ENC_A_ROTB                 |
+ *   25   | AUDIO_LEFT (DAC1)          | → TDA2822 L IN → Tip jack 5 broches + PAM8403 (HP interne)
+ *   26   | AUDIO_RIGHT (DAC2)         | → TDA2822 R IN → Ring jack 5 broches + PAM8403 (HP interne)
+ *   32   | ENC_B_ROTA                 | + C_ENC_DEBOUNCE_NF entre ROTA et GND
+ *   33   | ENC_B_ROTB                 |
  *  ------|----------------------------|--------------------------------------------
- *  Total : 16 GPIO utilisés
+ *  Total : 12 GPIO utilisés (16 → 12 après simplification à 2 encodeurs
+ *          et suppression du switch on/off séparé)
+ *
+ *  GPIO libérés par la simplification (plus câblés) :
+ *   13 (SW_ONOFF), 16/17/18 (ancien ENC_VOL)
  *
  *  GPIO non utilisés (réservés) :
  *    1, 3  : UART TX/RX — moniteur série / upload
