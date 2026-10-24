@@ -65,6 +65,7 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 ## 2026-10-24 — Hardware terminé, début de la phase software
 
 **Fait (entre le 15/09 et le 24/10, hors sessions Claude) :**
+- Chronologie (précisée par Felix) : **août** modélisation à la maison → **fin août / début sept.** au Lab, finalisation modélisation + tests d'impression → **semaine du 14/09** impression de toutes les pièces → **nuit du 18 ou 19/09** soudure et câblage complet (le lendemain : incident matrice) → **départ en woofing** → **~11/10** réception et soudure de la nouvelle matrice → **24/10** reprise, phase software
 - **Boîtier LIF2D entièrement assemblé et fonctionnel** (impression, soudure, câblage complet) — terminé avant le départ de Paris
 - Le firmware de test (affichage chiffres/texte/glider) tourne déjà sur l'ESP32 — matrice, police 3×5 et boîtier validés visuellement
 - Matrice WS2812B **rachetée** (voir incident ci-dessous)
