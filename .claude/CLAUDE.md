@@ -4,7 +4,7 @@
 
 **LIF2D** est la Beta 1 du projet **LIF3D** : un afficheur visuel + séquenceur musical génératif basé sur le Jeu de la Vie de Conway.
 
-- **LIF2D (maintenant)** : version 2D à plat — matrice LED 16×16 + audio stéréo + 10 contrôleurs physiques
+- **LIF2D (maintenant)** : version 2D à plat — matrice LED 16×16 + audio stéréo + 2 encodeurs + 1 bouton play/pause (design "ardoise magique" simplifié, révisé 2026-08-24)
 - **LIF3D (futur)** : rotor POV 32×32×32 à 1800 RPM, 3× ESP32-S3, WPT, son stéréo + subwoofer
 
 Objectif Beta 1 : valider le moteur GoL 2D, le pipeline GoL→LED, le séquenceur musical, l'UI physique et le design boîtier.
@@ -31,13 +31,24 @@ Doc technique complète : `docs/LIF2D_CONTEXT_CLAUDECODE.md`
 | BF-1220 12V/2A | Alim secteur | ⚠ Mis de côté — remplacée par LRS-75-5 pour LIF2D, garder pour LIF3D |
 | LM2596S | Buck converter lab | ⚠ Mis de côté — plus nécessaire avec LRS-75-5 |
 
-### À commander (voir CDC section 5 pour les détails et prix)
+### À commander (voir CDC section 5 pour les détails et prix — ⚠️ section à nettoyer, voir révision ci-dessous)
 | Composant | Priorité |
 |---|---|
 | **Mean Well LRS-75-5** (5V/14A/70W) | 🔴 CRITIQUE — alimentation principale |
-| Potentiomètres rotatifs ×4, EC11 ×2, boutons ×2, pots linéaires ×2 | 🔴 CRITIQUE |
+| Gros encodeurs ×2 + cache-molette ×2 + bouton poussoir ×1 (play/pause) | 🔴 CRITIQUE — design révisé, potentiomètres/EC11/pots linéaires du CDC obsolètes |
 | Jack TRS 3.5mm simple 3 broches (MIDI OUT) + jack TRS commuté 5 broches PJ-302M (Audio OUT auto-mute) + résistances 220Ω | 🔴 CRITIQUE |
 | Résistances 1Ω / 1W ×2 | 🟡 UTILE — protection HP |
+
+### ⚠️ Révision design — contrôles simplifiés (2026-08-24)
+
+Design final "ardoise magique" (Etch A Sketch) : boîtier minimaliste, façade dessus épurée au maximum.
+
+- **Dessus du boîtier** : uniquement 2 encodeurs (gros cache-molette façon ardoise magique) + 1 bouton play/pause centré entre les deux. Plus aucun potentiomètre, EC11 séparé, switch latching ou pot linéaire — **tout le paramétrage passe par les 2 encodeurs**, la matrice LED 16×16 servant d'écran de menu (voir tâche UI/menu ci-dessous).
+- **On/Off** : géré par l'embase secteur elle-même (Huaconn HC-99-F5, interrupteur + fusible intégrés) — pas de bouton on/off séparé sur le boîtier.
+- **Face arrière** (même côté que la prise secteur) : jack audio (PJ-3410, 5 broches, sortie) + jack MIDI OUT (PJ-3410, 3 broches). ✅ Clarifié 2026-09-04 : pas d'entrée audio ni MIDI IN — "entrée jack" désignait juste un connecteur en face arrière, pas un signal d'entrée. Voir `docs/analyses/20260904_jack_audio_casque_dac_brut.md`.
+- **Grosse inconnue à concevoir** : le système de menus/navigation sur la matrice 16×16 comme "écran" (comment afficher et naviguer dans des réglages sur 256 pixels avec seulement 2 encodeurs). C'est un morceau de conception à part entière, pas un détail.
+
+Ceci **supersede** la table "Contrôleurs physiques (10 contrôleurs)" ci-dessous et la partie contrôles du tableau "À commander" — gardées telles quelles dans le CDC pour historique, mais non plus d'actualité.
 
 ---
 
@@ -126,7 +137,22 @@ Autres disponibles : B5S45 (Coral), B4S5 (Builder), B5S5 (Sym), B36S23 (Highlife
 
 ---
 
-## Contrôleurs physiques (10 contrôleurs, 23 pins)
+## Contrôleurs physiques — design révisé (2026-08-24)
+
+⚠️ Table ci-dessous obsolète (ancien design 10 contrôleurs), gardée pour historique. Voir la révision dans la section Matériel plus haut.
+
+**Design actuel : 3 contrôleurs seulement**
+
+| # | Rôle | Type | Pins |
+|---|---|---|---|
+| 1 | Encodeur A (navigation menu / valeur) | Gros encodeur + cache-molette | 2+1btn |
+| 2 | Encodeur B (navigation menu / valeur) | Gros encodeur + cache-molette | 2+1btn |
+| 3 | Play/Pause | Bouton poussoir, centré entre les 2 encodeurs | 1 |
+
+Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) passe désormais par un **système de menus affiché sur la matrice LED 16×16**, navigué avec les 2 encodeurs. Rôle exact de chaque encodeur (navigation vs valeur, ou les deux selon le contexte du menu) **à concevoir** — voir tâche dédiée dans l'état d'avancement.
+
+<details>
+<summary>Ancien design (10 contrôleurs, 23 pins) — obsolète</summary>
 
 | # | Rôle | Type | Pins |
 |---|---|---|---|
@@ -142,13 +168,16 @@ Autres disponibles : B5S45 (Coral), B4S5 (Builder), B5S5 (Sym), B36S23 (Highlife
 | 10 | Luminosité LED | Pot linéaire | 1 ADC |
 | 11 | Règles GoL | Pot linéaire à crans | 1 ADC |
 
+</details>
+
 ---
 
 ## Modes de fonctionnement
 
 1. **Mode GoL** — jeu automatique, contrôleurs ajustent paramètres
-2. **Mode Dessin** — encodeurs X/Y pour placer/effacer cellules manuellement
-3. **Mode Formes** — long press Reset → sélection forme prédéfinie (glider, blinker...)
+2. **Mode Dessin** — encodeurs pour placer/effacer cellules manuellement
+3. **Mode Formes** — sélection forme prédéfinie (glider, blinker...)
+4. **Mode Menu** — la matrice 16×16 devient un écran de navigation/réglages (nouveau, design révisé 2026-08-24) — à concevoir
 
 ---
 
@@ -168,15 +197,19 @@ Autres disponibles : B5S45 (Coral), B4S5 (Builder), B5S5 (Sym), B36S23 (Highlife
 - [x] CDC v1.0 validé (`docs/CDC_LIF2D_Beta1_20260611.md`) — source de vérité du projet
 - [x] Bilan de puissance validé — chaîne LRS-75-5 5V/14A (`docs/analyses/20260612_bilan_puissance.md`)
 - [x] Pinout ESP32-D documenté (`docs/datasheet/ESP32-D_board_reference.md`)
+- [x] **Hardware complet assemblé dans le boîtier final** (2026-10-24) — matrice rachetée après court-circuit, schéma as-built + photos dans `docs/photos/`, vérifié conforme à `config.h`
+- [x] First light : firmware de test (chiffres/texte 3×5/glider) tourne sur la matrice
 
-### À faire (ordre prioritaire)
-- [ ] **Commander Mean Well LRS-75-5 + contrôleurs physiques + DIN-5 + TRS + résistances** (voir CDC section 5)
-- [ ] `src/main.cpp` — test LED statique (first light !)
-- [ ] `src/leds.cpp` — rendu WS2812B via FastLED
-- [ ] `src/controls.cpp` — encodeurs (interruptions) + ADC potars
-- [ ] `src/audio.cpp` — séquenceur Mozzi piloté par GoL
-- [ ] `src/main.cpp` final — assemblage FreeRTOS 2 cœurs
-- [ ] Tests sur breadboard
+### À faire — phase software (plan d'attaque validé 2026-10-24, une étape à la fois)
+- [ ] **Étape 0 — Ménage git** : commit du travail en attente + tag `hardware-done`
+- [ ] **Étape 1 — Conception UI (sur papier/en conversation)** : trancher `docs/analyses/20261024_ui_grammaire_controles.md` §6, compléter l'inventaire des réglages §5, figer la grammaire de gestes → spec UI v1
+- [ ] **Étape 2 — Simulateur web fidèle au boîtier** (`simulator-web/`) : rendu du boîtier réel (photos `docs/photos/` + FreeCAD), matrice 16×16, 2 molettes + ▶ ; écrans live / réglages / presets ; logique de menu portable vers C++
+- [ ] **Étape 3 — Jouer avec la maquette et itérer** jusqu'à ce que l'ergonomie soit évidente (test par un tiers plus tard)
+- [ ] **Étape 4 — Firmware contrôles + menus** : `src/controls.cpp` (encodeurs, clics, appuis longs), `src/menu.*` (porté du simulateur) + sauvegarde NVS, `src/leds.cpp` (rendu des écrans)
+- [ ] **Étape 5 — Audio** : `src/audio.cpp` séquenceur Mozzi piloté par GoL + **réglage des gains TDA2822 / PAM8403** (son strident selon les volumes des potards des amplis — comprendre le "gain staging" et fixer les bons niveaux)
+- [ ] **Étape 6 — Assemblage** : `src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
+- [ ] À valider en route : affectation A/B des broches des encodeurs (sens inversable en logiciel)
+- [x] Condos de découplage 100µF en sortie TDA2822 : présents sur le module (vérifié visuellement 2026-10-24)
 
 ---
 

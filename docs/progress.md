@@ -28,3 +28,73 @@
 
 **Hardware présent au lab :**
 ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596S (lab), DC Power Supply NANKADF (lab), multimètre (lab)
+
+---
+## 2026-09-14 — FreeCAD merges + config.h finalisé
+
+**Fait :**
+- FreeCAD : chanfrein 1mm haut+bas créé proprement sur les 2 caches-boutons (Extrude117/118_zigzag), anciens objets cassés/orphelins nettoyés
+- FreeCAD : nouveau support générique 30×45mm créé dans le style de support_pam (sans le cut cylindrique)
+- FreeCAD : ouverture du connecteur PJ3412 élargie de 0.1mm (puis annulée sur demande)
+- FreeCAD : objet `PJ3411` (hiérarchie App::Part imbriquée, 12 objets) supprimé — invisible/inutile
+- FreeCAD : `POWER HOLDER` réparé (sketch source avec cercle+rectangle qui se chevauchaient au lieu d'une silhouette unique — auto-intersection corrigée)
+- FreeCAD : `Compound002` "Glissière" fusionné proprement (n'était que compoundé, jamais vraiment fusionné)
+- FreeCAD : **`FULL_BOTTOM_pour_impression`** et **`FULL_TOP_pour_impression`** créés — coques + tous les supports internes, chacun 1 seul solide valide, prêts pour export STL/Bambu
+- `include/config.h` mis à jour : design final 2 encodeurs (`ENC_A`/`ENC_B`, ex-X/Y) + 1 bouton play/pause confirmé et câblé en dur ; ancien `ENC_VOL` (GPIO16/17/18) et `SW_ONOFF` (GPIO13) supprimés ; résistances/condensateurs documentés en constantes
+- Schéma de câblage complet publié en artefact (signal GPIO + alimentation 5V/GND dédiée), mis à jour au fil de la session avec TDA2822, IEC Huaconn, LRS-75-5, MIDI Clock/MIDI IN prévu
+
+**Décisions :**
+- Design contrôleurs définitivement tranché : 1 bouton + 2 encodeurs génériques (plus de rôle fixe volume/X/Y), tout le paramétrage via menu sur la matrice LED
+- GPIO13, 16, 17, 18 officiellement libérés, ne plus les câbler
+- Les 2 pièces FreeCAD à problème étaient réparables sans perte de design (pas besoin de repartir de zéro)
+
+**Problèmes rencontrés :**
+- `Part::Boolean` (Fuse/MultiFuse) plante avec `Standard_NullObject` sur certains objets multi-solides (Extrude126/127) — contournement : fusion brute via `Shape.fuse()` + `removeSplitter()` en Python plutôt que la commande GUI
+- `POWER HOLDER` et `Compound002` avaient des défauts géométriques non visibles via `isValid()` seul — nécessite `Shape.check(True)` pour les détecter (auto-intersections BOP)
+- Décalage d'attache (`AttachmentOffset`) sur un Sketch : le repère local d'une face peut être inversé par rapport au Z global — toujours vérifier le `Placement` résultant, pas juste le signe de l'offset
+
+**Prochaines étapes :**
+- [ ] Export STL des deux pièces fusionnées + slicing Bambu
+- [ ] Décider si `POWER HOLDER` doit être revu en profondeur ou si la réparation suffit à long terme
+- [ ] Continuer `src/controls.cpp` (2 encodeurs + bouton) maintenant que les GPIO sont figés
+- [ ] Câbler MIDI IN si le H11L1 est commandé/reçu (voir `docs/analyses/20260911_io_audio_midi_reflexion.md`)
+
+**Hardware présent :** inchangé depuis les dernières sessions (voir mémoire projet `project_hardware.md`) — rien de nouveau reçu cette session, uniquement du travail CAO + firmware/doc.
+
+---
+## 2026-10-24 — Hardware terminé, début de la phase software
+
+**Fait (entre le 15/09 et le 24/10, hors sessions Claude) :**
+- **Boîtier LIF2D entièrement assemblé et fonctionnel** (impression, soudure, câblage complet) — terminé avant le départ de Paris
+- Le firmware de test (affichage chiffres/texte/glider) tourne déjà sur l'ESP32 — matrice, police 3×5 et boîtier validés visuellement
+- Matrice WS2812B **rachetée** (voir incident ci-dessous)
+- Schéma de câblage as-built dessiné à la main + photos → `docs/photos/` (renommées `20261024_*`, copies `.jpg` ajoutées)
+- Vérification schéma ↔ `include/config.h` : **les 15 connexions ESP32 correspondent** (GPIO 4, 5, 14, 19, 21, 22, 23, 25, 26, 32, 33 + VIN/GND/3.3V/GND). Seul le commentaire de la section AUDIO était obsolète (chaîne DAC → TDA2822 → jack 5 broches → PAM8403) — corrigé
+- MIDI OUT confirmé conforme TRS **Type A** (Tip = data GPIO4 via 220Ω, Ring = 3.3V via 220Ω, Sleeve = GND)
+- Nouveau document : `docs/analyses/20261024_ui_grammaire_controles.md` (inventaire des gestes, types d'écrans, premier jet des réglages)
+
+**Incident — matrice à moitié morte (retour d'expérience) :**
+- Contexte : soudure jusqu'à 4h du matin, matrice qui ne s'allumait pas. Le lendemain, debug au multimètre en touchant (en tremblant) les soudures 5V/GND de la réinjection de courant au centre de la matrice. 5 min après : découverte que le fil DATA n'était pas sur la bonne broche de l'ESP32 — c'était la vraie cause du "rien ne s'allume". Résultat : seule la moitié de la matrice fonctionnait.
+- Cause probable : la pointe de touche a ponté un pad 5V avec un pad DIN/DOUT voisin → la LED au milieu de la chaîne a grillé, et comme chaque WS2812B retransmet le signal à la suivante, **toute la suite de la chaîne est morte**.
+- Leçons :
+  1. **Vérifier d'abord le câblage logique (broche DATA, GND commun) avant de mesurer sous tension** — une erreur de broche ne grille rien, une pointe qui glisse oui.
+  2. Mesurer **hors tension** (continuité) dès que possible ; sous tension, utiliser des pinces crocodiles plutôt que des pointes tenues à la main sur des pads serrés.
+  3. Ne pas debugger fatigué.
+  4. 💡 La vieille matrice est probablement **réparable** : une moitié morte = souvent **une seule LED grillée** à la frontière. Remplacer cette LED (5050, en stock sur AliExpress) ou ponter DIN→DOUT sur elle = matrice de rechange.
+
+**Points hardware à confirmer :**
+- ~~Condos 100µF sortie TDA2822~~ → résolu : intégrés au module (2 condos 100µF visibles devant les bornes de sortie)
+- Son strident : dépend des volumes réglés sur les potards des amplis — baissés pour l'instant ; tests de gain TDA2822/PAM8403 à faire (étape 5)
+- ~~Sortie HP− : symbole hachuré~~ → résolu : erreur de dessin, la résistance 1Ω est bien montée côté + (conforme)
+- Affectation exacte A/B/clic de chaque encodeur : à valider avec un test (le sens de rotation s'inverse en logiciel si besoin)
+
+**Décisions :**
+- Phase suivante = **software**, en commençant par la conception UI : inventaire des réglages + grammaire de gestes + simulateur **web** fidèle au boîtier (photos + FreeCAD)
+- Logique des menus écrite de façon portable pour finir en C++ sur l'ESP32 (une seule source de vérité)
+- Test par une personne extérieure : plus tard, une fois la maquette jouable
+
+**Prochaines étapes :**
+- [ ] Séance de conception : trancher les questions de `20261024_ui_grammaire_controles.md` §6
+- [ ] Compléter l'inventaire des réglages (§5)
+- [ ] Simulateur web : rendu du boîtier réel + matrice + 2 molettes + bouton ▶
+- [ ] Puis firmware : `controls.cpp` (encodeurs), `menu`, sauvegarde NVS

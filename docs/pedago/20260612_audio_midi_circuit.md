@@ -105,7 +105,8 @@ MIDI utilise exactement le même protocole qu'une liaison série classique :
 **UART** = Universal Asynchronous Receiver Transmitter  
 = protocole qui envoie des bits un par un sur un seul fil (TX = transmit).
 
-→ GPIO17 (UART2_TX) envoie les bytes MIDI bit par bit à 31250 bauds.
+→ GPIO4 (UART2_TX remappé) envoie les bytes MIDI bit par bit à 31250 bauds.
+(⚠ corrigé 2026-09-15 : c'était GPIO17 à l'origine, remappé sur GPIO4 depuis la révision boîtier du 2026-08-24 pour libérer GPIO17.)
 
 ### Circuit DIN-5 (connecteur MIDI classique)
 
@@ -124,7 +125,7 @@ Vue de face du connecteur femelle (côté qui sort du boîtier) :
 | 2 | GND | Référence commune |
 | 3 | Non connectée | — |
 | 4 | +3.3V → **220Ω** | Alimentation de la boucle de courant |
-| 5 | GPIO17 (UART2_TX) → **220Ω** | Signal MIDI |
+| 5 | GPIO4 (UART2_TX remappé) → **220Ω** | Signal MIDI |
 
 ### Pourquoi les résistances 220Ω ?
 MIDI fonctionne en **boucle de courant 5mA** (pas en tension).  
@@ -142,3 +143,13 @@ Branché en **parallèle** sur les mêmes fils que le DIN-5 :
 
 > **Type A** = standard Korg, Make Noise, Arturia Keystep.  
 > **Type B** = standard Arturia (Tip et Ring inversés). LIF2D utilise Type A.
+
+### Quel GND utiliser pour le Sleeve ? (question du 2026-09-15)
+
+Le GPIO4 et le +3.3V viennent tous les deux de l'ESP32. Électriquement, la broche GND de l'ESP32 et le bus GND du LRS sont **le même nœud** (l'un est raccordé à l'autre via le Wago) — donc n'importe lequel des deux "marche" au sens strict.
+
+Mais en pratique, mieux vaut brancher le Sleeve du jack **directement sur une broche GND de l'ESP32**, pas sur le bus GND du LRS. Raison : le bus GND du LRS transporte aussi le retour de courant de la matrice LED (WS2812B — pics de courant importants à chaque rafraîchissement) et du PAM8403 (courant HP, plusieurs centaines de mA en musique). Ces pics créent de minuscules variations de tension sur le fil GND lui-même (chute de tension due à sa résistance non nulle). Si le signal MIDI (ou audio) référence son "0V" sur ce même point bruité, ce bruit se mélange au signal.
+
+> 🎓 **Masse en étoile (star grounding)** : faire revenir chaque signal sensible (MIDI, audio, DAC) le plus directement possible vers une seule et même broche GND "propre" (ici, celle de l'ESP32), plutôt que de piquer le GND n'importe où sur un bus qui transporte aussi du courant de puissance. Ça ne change rien en courant continu, mais ça évite d'injecter du bruit dans les signaux les plus sensibles.
+
+**En pratique pour LIF2D** : Sleeve du jack MIDI → broche GND de l'ESP32 (pas directement le bloc Wago GND). Même logique pour le Sleeve du jack audio 5 broches.

@@ -443,6 +443,20 @@ Aucun point 🔴 BLOQUANT — le projet peut démarrer dès réception du LRS-75
 
 ---
 
+## 9bis. Révision — Contrôles simplifiés "ardoise magique" (2026-08-24)
+
+Cette révision **supersede** la section 3 point 7, le Bloc 5 de la section 4, et les lignes contrôles de la section 5 — gardées ci-dessus pour historique, non actualisées.
+
+**Nouveau design façade :**
+- Dessus du boîtier épuré au maximum : **2 gros encodeurs** avec cache-molette (esthétique ardoise magique / Etch A Sketch) + **1 bouton play/pause** centré entre les deux. Plus de potentiomètres, plus d'EC11 séparés, plus de switch latching, plus de pots linéaires.
+- **Tout le paramétrage** (BPM, gamme, timbre, octave, luminosité, règles GoL...) passe par un système de menus affiché sur la **matrice LED 16×16 elle-même**, navigué avec les 2 encodeurs. Rôle précis de chaque encodeur selon le contexte du menu : à concevoir — c'est une étape de conception à part entière (UI sur 256 pixels), pas un détail d'implémentation.
+- **On/Off** : plus de bouton dédié — géré directement par l'embase secteur Huaconn HC-99-F5 (interrupteur + fusible intégrés).
+- **Face arrière** (même côté que la prise secteur) : jack audio + jack MIDI OUT. ⚠️ Point à clarifier avec Felix : "entrée Jack" mentionnée — vraie entrée audio externe (nouvelle fonctionnalité, MIDI IN reste hors périmètre) ou le jack TRS commuté déjà prévu (sortie ligne quand câble branché) ? Ne pas figer le firmware audio avant clarification.
+
+**Impact BOM (voir aussi base Composants Notion) :** retirer potentiomètres rotatifs ×4, EC11 ×2, pots linéaires ×2 ; ramener "gros encodeurs" de 3 à 2 ; ajouter cache-molette ×2 ; bouton poussoir ramené à ×1 (play/pause seul, plus de switch latching).
+
+---
+
 ## 10. Points Ouverts
 
 *À résoudre avant / pendant le développement :*
