@@ -32,7 +32,7 @@ void setup() {
 
     input_init();
     ui_init();       // prépare la grille GoL et se branche sur l'horloge du séquenceur
-    audio_init();    // 🎓 Mozzi pilote maintenant les DAC (plus besoin du dacWrite de silence)
+    audio_init();    // 🎓 Mozzi pilote les DAC depuis sa propre tâche, sur le cœur 0
     Serial.println("=== LIF2D UI TEST + AUDIO ===");
 }
 
@@ -63,11 +63,10 @@ static void debug_pins() {
     }
 }
 
-// 🎓 Plus aucun delay() : audioHook() doit être appelé le plus souvent possible
-//    pour remplir le tampon audio. Sinon le DAC n'a plus rien à jouer → craquements.
-//    L'affichage (FastLED.show ≈ 8 ms pour 256 LEDs) est limité à 50 images/s.
+// 🎓 loop() tourne sur le cœur 1 : interface + LEDs seulement. Le son vit
+//    sur le cœur 0 (audio.cpp), donc FastLED.show() (≈ 8 ms) ne peut plus
+//    l'affamer. L'affichage reste limité à 50 images/s.
 void loop() {
-    audioHook();
     input_poll();
     debug_inputs();
     debug_pins();

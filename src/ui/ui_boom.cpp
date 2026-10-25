@@ -11,8 +11,8 @@ uint8_t live_step32();
 // ---------------------------------------------------------------- BOOM
 // 🎓 Pattern stocké en bits : 1 entier de 32 bits par piste, bit n = pas n.
 //    8 pistes × 4 octets = 32 octets pour toute la boîte à rythme.
-static uint32_t pattern[8] = {
-    0x55551111, 0x10101010, 0x55555555, 0x80808080, 0x10001000, 0x20004000, 0, 0x40000000,
+static uint32_t pattern[8] = {   // départ = le rythme validé : kick 1 et 3, caisse 2 et 4, charley en croches
+    0x01010101, 0x10101010, 0x55555555, 0, 0, 0, 0, 0,
 };
 static int8_t boom_x = 0, boom_t = 0;   // curseur : pas (0–31) et piste (0–7)
 

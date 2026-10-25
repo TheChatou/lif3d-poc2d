@@ -125,3 +125,23 @@ La carte ESP32 a **deux entrées 5 V reliées entre elles** sur la carte : le co
 🎓 **Pourquoi garder le GND commun** : un signal (DATA des LEDs, audio) est une tension mesurée **par rapport à la masse**. Si l'ESP32 et la matrice n'ont pas la même référence, le "1" envoyé par l'ESP32 n'a plus de sens pour la matrice.
 
 **Règle** : jamais USB et VIN branchés en même temps. Pour flasher → débrancher VIN ; pour l'usage autonome → débrancher l'USB puis rebrancher VIN.
+
+---
+
+## Lire la valeur d'une résistance : R, K, M (2026-10-26)
+
+**Notation** : la lettre remplace la virgule ET donne l'unité — `R` = Ω, `K` = kΩ (×1000), `M` = MΩ (×1 000 000).
+Évite les virgules qui s'effacent à l'impression.
+
+| Marquage | Valeur |
+|---|---|
+| `10R` | 10 Ω |
+| `4R7` | 4,7 Ω |
+| `4K7` | 4 700 Ω = 4,7 kΩ |
+| `1K` | 1 000 Ω |
+| `220R` | 220 Ω |
+
+**Piège** : `4R7` (4,7 Ω, réseau Zobel) et `4K7` (4,7 kΩ) ne diffèrent que d'une lettre — **1000× d'écart**.
+
+**Code couleur** (résistances 4 anneaux) : 10 Ω = marron-noir-noir + or ; 4,7 Ω = jaune-violet-**or** + or
+(le 3e anneau or = multiplier par 0,1). Doute → multimètre.

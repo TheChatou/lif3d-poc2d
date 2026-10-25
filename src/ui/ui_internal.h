@@ -21,12 +21,13 @@ enum BootStyle : int16_t { BOOT_TEXT, BOOT_LOGO };
 enum HubStyle  : int16_t { HUB_TWO_LEVELS, HUB_FLAT };
 enum SelStyle  : int16_t { SEL_BRIGHT, SEL_BLINK, SEL_COLOR };
 
-// Tous les réglages. Reliés au son pour l'instant : ▶ (playing) et volume.
+// Tous les réglages. Son : envoyés à audio.cpp à chaque image (ui_live.cpp, push_audio_params).
 struct Settings {
-    int16_t bpm = 60, scale = 0, tonic = 9, octave = 3, timbre = 0, arp = 0, reverb = 30, boom_vol = 75;
+    int16_t bpm = 60, scale = 0, tonic = 9, octave = 2, timbre = 0, arp = 1, reverb = 30, boom_vol = 75;
     int16_t attack = 15, decay = 40;
+    int16_t arp_mode = 2, arp_div = 2, arp_groove = 0;   // RANDOM ×3, sans groove
     int16_t rule = 0, evolution = 0, loop_on = 0, loop_len = 1, loop_mode = 0, symmetry = 0, density = 30, palette = 0;
-    int16_t kit = 0, swing = 0, boom_master = 80;
+    int16_t kit = 1, swing = 0, boom_master = 80;
     int16_t boot_style = BOOT_LOGO, hub_style = HUB_TWO_LEVELS, sel_style = SEL_BRIGHT, brightness = 20;
     int16_t volume = 70;      // molette droite en live
     int16_t led_test = 0;     // SYS > TEST LED (temporaire, revient à NORMAL en sortant de l'édition)
@@ -69,6 +70,9 @@ void rec_open(uint8_t bank);
 void name_open(const char* initial, const char* fallback, void (*on_done)(const char*));
 void name_handle(const Event& ev); void name_render();
 uint8_t*  live_grid();          // grille GoL affichée/jouée (ui_live.cpp)
+void      live_grid_changed();  // à appeler après avoir modifié la grille (relance la LOOP)
+enum TrackValue : uint8_t { TV_PITCH, TV_DECAY, TV_TONE, TV_VOLUME, TV_PAN, TV_SWING, TV_PROBA, TV_MUTE };
+int16_t   track_value(uint8_t track, uint8_t which);   // réglages d'une piste BOOM (ui_pages.cpp)
 uint32_t* boom_pattern();       // pattern BOOM 8 pistes (ui_boom.cpp)
 void rec_handle(const Event& ev);   void rec_render();
 void diag_handle(const Event& ev);  void diag_render();

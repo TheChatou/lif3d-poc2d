@@ -72,6 +72,7 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **Protection puissance LEDs** : `FastLED.setMaxPowerInVoltsAndMilliamps(5, 10000)` dans setup() — pas setBrightness seul
 - Alimentation : **Mean Well LRS-75-5 (5V/14A)** — tout en 5V direct, aucun buck intermédiaire
 - Mozzi + FastLED → cœurs FreeRTOS séparés OBLIGATOIRE (conflit d'interruptions sinon)
+  - ✅ Fait dans `ui_test` (2026-10-25) : `audio_init()` lance `audio_task` sur le **cœur 0** (rafales d'`audioHook()` + `vTaskDelay(1)`), UI/LEDs dans `loop()` sur le cœur 1. Réglages via `audio_set_params()` protégé par spinlock. (Inverse du schéma ci-dessus : à garder pour le firmware final)
 - Encodeurs EC11 : décodage quadrature par table sur interruptions (`src/ui/input.cpp`) = anti-rebond logiciel suffisant. Condos 100nF **retirés** (2026-10-26) ; s'ils sont remis : **entre ROTA et GND (en parallèle), JAMAIS en série** sur le fil
 - Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` pour l'âge
 - ADC : utiliser **uniquement ADC1** (GPIO 32–39) — ADC2 incompatible avec certains timers Mozzi
@@ -213,7 +214,8 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [ ] **Étape 3 — Itérer sur `ui_test`** : corriger les petits bugs, déplacement dans les presets peu pratique, retester la lisibilité des pages de réglages (variante "réglage en gros" si besoin)
 - [x] **Étape 3b — Musique dans `ui_test`** (2026-10-26) : Mozzi/`audio.cpp` branché, l'horloge du séquenceur fait avancer le GoL ; ▶ et volume reliés. Reste à relier BPM/gamme/timbre/BOOM (étape 5)
 - [x] **Étape 3c — Réparer les 2 encodeurs** (2026-10-26) : condos retirés, `ENC_SINGLE_CHANNEL 0`, `INVERT_A/B 1` (horaire = descendre/augmenter)
-- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal + sauvegarde NVS
+- [ ] **Son qui crache encore** (2026-10-25) : saturation/soft-clip + Mozzi sur cœur 0 + réglages arpège (MODE/VITESSE/GROOVE) faits et flashés, mais pas encore propre. Prochains suspects : saturation analogique entrée ampli (diviseur), TDA2822 gauche, grain du DAC 8 bits → voir mémoire projet
+- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal + sauvegarde NVS (presets + réglages SYS, plan validé : `src/ui/storage.*`, `Preferences`)
 - [ ] **Étape 5 — Audio** : relier les réglages (BPM, gamme, timbre…) à `audio.cpp` + **gain staging TDA2822 / PAM8403**
 - [ ] **Étape 6 — Assemblage** : `src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
 - [ ] **Sifflement audio = canal GAUCHE du module TDA2822** (diagnostic 2026-10-26, ce ne sont PAS les LEDs) : filtre RC 10 Ω + 1000 µF sur son VCC commandé ; plans B (Zobel, contourner le TDA, MAX98357A) → `docs/analyses/20261025_interferences_leds_audio.md` §5

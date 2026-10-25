@@ -186,3 +186,41 @@ module TDA2822, et pas le jack ou les soudures.
   fragile qui craque quand on bouge. Refaire en chauffant **broche + fil ensemble** 2–3 s avant l'étain.
 - **Entrée en l'air** : une entrée d'ampli reliée à rien (ou par une grande résistance) capte le 50 Hz du secteur
   → bourdonnement grave. Disparaît dès qu'une source (le DAC) pilote l'entrée.
+
+---
+
+## Son numérique qui "crache" : débordement, écrêtage, marge (2026-10-25)
+
+**Définitions**
+- **Débordement (overflow / wraparound)** : un `int8_t` va de -128 à +127. 127 + 89 ne donne pas 127 mais ≈ -40 : la valeur "fait le tour". Sur une onde, ça crée un saut instantané haut→bas = **claquement sec**.
+- **Écrêtage dur (hard clipping)** : on bloque tout ce qui dépasse ±127. Les crêtes deviennent plates → harmoniques aiguës → son **saturé, grésillant**.
+- **Écrêtage doux (soft clipping)** : la courbe reste linéaire au centre puis se tasse en s'approchant de la limite → crêtes arrondies, son "chaud".
+- **Marge (headroom)** : garder de la place sous le maximum pour que la somme de plusieurs sons ne dépasse pas.
+
+**Analogie** : un compteur kilométrique à 3 chiffres qui passe de 999 à 000 (débordement) vs un verre qui déborde (écrêtage dur) vs une éponge qui absorbe de moins en moins (écrêtage doux).
+
+**Sur LIF2D** (`src/audio.cpp`) : la reverb (comb filters avec retour 0,7 ≈ ×3,3 sur un son tenu) débordait ses buffers `int8_t`, et la batterie à 100 % + 3 voix + reverb écrêtait en permanence. Correctif : `sat8()` dans les combs/allpass, reverb alimentée à ½, somme finale /2 puis `soft_clip()`, batterie à ~50 % par défaut.
+
+**Pièges**
+- Additionner N sons = le pire cas est N × le max. Toujours prévoir la marge **avant** d'additionner.
+- Un cast `(int8_t)` ne protège rien : il tronque, il ne sature pas.
+- Une boucle avec feedback (reverb, écho) amplifie : son entrée doit être plus faible que le reste.
+
+---
+
+## Tampon audio affamé → tâche dédiée sur un cœur (2026-10-25)
+
+**Définitions**
+- **Tampon DMA** : petite mémoire que le périphérique audio (I2S → DAC) lit tout seul, sans le processeur. Mozzi y dépose 256 échantillons d'avance = **7,8 ms** de son à 32 768 Hz.
+- **Underrun (famine)** : si personne ne remplit le tampon pendant plus de 7,8 ms, le DAC rejoue de vieux morceaux → trous / crachements.
+- **Tâche FreeRTOS** : un "mini-programme" qui tourne en parallèle des autres ; `xTaskCreatePinnedToCore` l'épingle sur un cœur précis de l'ESP32 (il en a 2).
+- **Spinlock (`portMUX`)** : un verrou qui empêche deux cœurs de lire/écrire la même donnée au même moment.
+
+**Analogie** : un DJ qui doit remettre un disque toutes les 7,8 s, mais qu'on envoie aussi repeindre la salle (FastLED.show ≈ 8 ms). La musique s'arrête. Solution : un DJ à plein temps (cœur 0) et un peintre (cœur 1).
+
+**Sur LIF2D** : `audio_init()` lance `audio_task` sur le cœur 0 (rafale de 128 `audioHook()` puis `vTaskDelay(1)`), `loop()` ne fait plus que l'UI + LEDs sur le cœur 1. Les réglages passent par une "boîte aux lettres" protégée (`audio_set_params` → `pending` → appliqué dans `updateControl`).
+
+**Pièges**
+- Une boucle infinie sans `vTaskDelay` affame la tâche idle → le **watchdog** redémarre l'ESP32.
+- `audioHook()` ne calcule qu'**un** échantillon par appel : il faut l'appeler en rafale.
+- Deux cœurs qui touchent la même structure sans verrou = valeurs "à moitié mises à jour".

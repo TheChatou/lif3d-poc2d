@@ -1,17 +1,40 @@
 #pragma once
 #include <stdint.h>
 
-// 🎓 TEMPO DU SÉQUENCEUR — c'est ici, et seulement ici, qu'on le règle.
-//    CONTROL_RATE = fréquence à laquelle Mozzi appelle updateControl() (Hz).
-//    TICKS_PER_COL = nombre d'appels updateControl() avant de passer au
-//    temps (beat) suivant. Chaque temps fait avancer le GoL d'UNE génération
-//    (voir audio_set_gol_step_callback) — plus de notion de "balayage complet
-//    de 16 colonnes avant de changer de génération".
-#define CONTROL_RATE   64   // Hz — doit être une puissance de 2 (contrainte Mozzi)
-#define TICKS_PER_COL  64   // ↑ augmente = tempo plus lent, ↓ diminue = plus rapide (×4 = vitesse ÷4)
+// 🎓 CONTROL_RATE = fréquence à laquelle Mozzi appelle updateControl() (Hz).
+//    Doit être une puissance de 2 (contrainte Mozzi). 128 Hz = une précision
+//    d'environ 8 ms pour placer les notes et les coups de batterie — assez fin
+//    pour le swing. Le tempo, lui, se règle avec AudioParams::bpm.
+#define CONTROL_RATE   128
+
+// 🎓 Une piste de la boîte à rythme (valeurs 0–100, comme dans les menus).
+struct DrumTrack {
+    uint8_t pitch = 50, decay = 40, tone = 60, volume = 80, proba = 100;
+    bool    mute = false;
+};
+
+// 🎓 TOUS les réglages du son, en un seul paquet. L'interface remplit ce
+//    paquet et l'envoie avec audio_set_params() : audio.cpp ne connaît rien
+//    des menus, et les menus ne touchent jamais aux oscillateurs.
+//    Valeurs par défaut = le son validé (cloche de cristal, 60 BPM).
+struct AudioParams {
+    uint8_t  bpm = 60;
+    uint8_t  scale = 0, tonic = 9, octave = 2, timbre = 0;   // tonic 9 = La ; octave 2 → La3 en bas
+    bool     arp = true;                                     // true = arpège, false = accord
+    // 🎓 arp_mode : UP, DOWN, RANDOM, PING PONG, TIERCE, QUINTE, ACCORD
+    //    arp_div   : index dans {×1, ×2, ×3, ×4, ×6, ×8} notes par temps
+    uint8_t  arp_mode = 2, arp_div = 2;                      // RANDOM ×3 = l'arpège d'avant
+    bool     arp_groove = false;
+    uint8_t  reverb = 30, attack = 15, decay = 40;
+    uint8_t  drum_volume = 60, kit = 1, swing = 0;
+    // 🎓 1 entier de 32 bits par piste : bit n = pas n (double-croche) sur 2 mesures
+    uint32_t pattern[8] = {0x01010101, 0x10101010, 0x55555555, 0, 0, 0, 0, 0};
+    DrumTrack track[8];
+};
 
 void audio_init();
 void audio_grid_update(const uint8_t* grid);
+void audio_set_params(const AudioParams& p);   // sûr depuis l'autre cœur
 
 // 🎓 Pause = coupe le son ET fige le séquenceur (le GoL n'avance plus tant
 //    qu'on n'a pas repris) — pas juste une mise en sourdine.
@@ -29,10 +52,10 @@ void audio_set_volume(uint8_t percent);
 typedef void (*GolStepCallback)();
 void audio_set_gol_step_callback(GolStepCallback cb);
 
-// Colonne actuellement balayée par le séquenceur (0..GRID_COLS-1) —
-// permet à leds.cpp/main.cpp de surligner la colonne jouée en temps réel.
+// Colonne actuellement jouée (0..GRID_COLS-1) et pas de batterie (0..31)
 uint8_t audio_current_col();
+uint8_t audio_drum_step();
 
-// audioHook() est défini par Mozzi dans MozziGuts.h (inclus via audio.cpp)
-// On le déclare ici pour que main.cpp puisse l'appeler sans inclure MozziGuts.h
+// 🎓 audio_init() lance une tâche FreeRTOS sur le cœur 0 qui appelle
+//    audioHook() en continu : loop() n'a plus à s'en occuper.
 void audioHook();

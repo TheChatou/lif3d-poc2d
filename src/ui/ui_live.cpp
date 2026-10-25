@@ -9,48 +9,112 @@
 #define GRID_N        (DISP_W * DISP_H)
 
 // ---------------------------------------------------------------- horloge commune
-// 🎓 Le GOL suit maintenant l'horloge du séquenceur Mozzi (audio.cpp) : à
-//    chaque temps, audio.cpp appelle on_beat() AVANT de choisir ses notes,
-//    donc le son et les LEDs montrent toujours la même génération.
-//    La tête de lecture = la colonne que le séquenceur est en train de jouer.
-//    La BOOM garde son horloge millis() (pas encore reliée au son).
-static uint32_t t_step = 0;
-static uint8_t  step32 = 0;
+// 🎓 Le GOL suit l'horloge du séquenceur Mozzi (audio.cpp) : à chaque temps,
+//    audio.cpp appelle on_beat() AVANT de choisir ses notes, donc le son et
+//    les LEDs montrent toujours la même génération. La tête de lecture du
+//    GOL = la colonne jouée ; celle de la BOOM = le pas de batterie joué.
 static uint16_t beats_total = 0;
 
-uint8_t live_step32() { return step32; }
+uint8_t live_step32() { return audio_drum_step(); }
 
 static uint8_t grid[GRID_N], grid_next[GRID_N];
 
 uint8_t* live_grid() { return grid; }
 
+// ---------------------------------------------------------------- SYMETRIE
+// 🎓 On RECOPIE une moitié sur l'autre (miroir), on ne fusionne pas :
+//    fusionner doublerait la densité et étoufferait la grille.
+static void symmetrize(uint8_t* g) {
+    if (cfg.symmetry & 1)   // X : la moitié gauche se reflète à droite
+        for (int y = 0; y < DISP_H; y++)
+            for (int x = 0; x < DISP_W / 2; x++) g[y * DISP_W + DISP_W - 1 - x] = g[y * DISP_W + x];
+    if (cfg.symmetry & 2)   // Y : la moitié haute se reflète en bas
+        for (int y = 0; y < DISP_H / 2; y++)
+            memcpy(&g[(DISP_H - 1 - y) * DISP_W], &g[y * DISP_W], DISP_W);
+}
+
+// ---------------------------------------------------------------- LOOP
+// 🎓 LOOP : au lieu d'évoluer à l'infini, le GoL rejoue en boucle les 2, 4
+//    ou 8 générations qui suivent l'image de départ — une phrase musicale
+//    qui se répète. Elles sont calculées d'avance et rangées dans `hist`.
+#define LOOP_MAX 8
+static uint8_t hist[LOOP_MAX][GRID_N];   // 2 Ko
+static uint8_t hist_len = 0, hist_rule = 0;
+static int8_t  hist_pos = 0, hist_dir = 1;
+
+void live_grid_changed() { hist_len = 0; }   // dessin, graine, preset : la boucle repart de là
+
+static void evolve() {
+    if (!cfg.loop_on) {
+        hist_len = 0;
+        gol_step(grid, grid_next, cfg.rule);
+        gol_copy(grid_next, grid);
+        symmetrize(grid);
+        return;
+    }
+    static const uint8_t LENS[] = {2, 4, 8};
+    uint8_t len = LENS[cfg.loop_len];
+    if (hist_len != len || hist_rule != cfg.rule) {   // (re)capture à partir de l'image actuelle
+        gol_copy(grid, hist[0]);
+        for (int i = 1; i < len; i++) {
+            gol_step(hist[i - 1], hist[i], cfg.rule);
+            symmetrize(hist[i]);
+        }
+        hist_len = len; hist_rule = cfg.rule; hist_pos = 0; hist_dir = 1;
+    }
+    if (cfg.loop_mode == 0) {
+        hist_pos = (hist_pos + 1) % len;                       // CYCLE : 1 2 3 4 1 2 3 4
+    } else {
+        if (hist_pos + hist_dir < 0 || hist_pos + hist_dir >= len) hist_dir = -hist_dir;
+        hist_pos += hist_dir;                                  // ALLER RETOUR : 1 2 3 4 3 2 1
+    }
+    gol_copy(hist[hist_pos], grid);
+}
+
 static void on_beat() {
     // 🎓 SET GOL > EVOLUTION : une génération tous les 1, 2, 4 ou 16 temps
     static const uint8_t EVERY[] = {1, 2, 4, 16};
-    if (++beats_total % EVERY[cfg.evolution] == 0) {
-        gol_step(grid, grid_next, cfg.rule);
-        gol_copy(grid_next, grid);
-    }
+    if (++beats_total % EVERY[cfg.evolution] == 0) evolve();
     audio_grid_update(grid);
+}
+
+static void new_seed() {
+    gol_randomize(grid, cfg.density / 100.0f);
+    symmetrize(grid);
+    live_grid_changed();
 }
 
 void live_init() {
     gol_seed(esp_random());
-    gol_randomize(grid, cfg.density / 100.0f);
+    new_seed();
     audio_grid_update(grid);
     audio_set_gol_step_callback(on_beat);
+}
+
+// 🎓 Tous les réglages des menus → un paquet AudioParams envoyé au moteur son
+static void push_audio_params() {
+    AudioParams p;
+    p.bpm = cfg.bpm;  p.scale = cfg.scale;  p.tonic = cfg.tonic;  p.octave = cfg.octave;
+    p.timbre = cfg.timbre;  p.arp = cfg.arp;  p.reverb = cfg.reverb;
+    p.attack = cfg.attack;  p.decay = cfg.decay;
+    p.arp_mode = cfg.arp_mode;  p.arp_div = cfg.arp_div;  p.arp_groove = cfg.arp_groove;
+    p.drum_volume = cfg.boom_vol * cfg.boom_master / 100;
+    p.kit = cfg.kit;  p.swing = cfg.swing;
+    memcpy(p.pattern, boom_pattern(), sizeof(p.pattern));
+    for (int t = 0; t < 8; t++) {
+        DrumTrack& d = p.track[t];
+        d.pitch = track_value(t, TV_PITCH);   d.decay = track_value(t, TV_DECAY);
+        d.tone = track_value(t, TV_TONE);     d.volume = track_value(t, TV_VOLUME);
+        d.proba = track_value(t, TV_PROBA);   d.mute = track_value(t, TV_MUTE);
+    }
+    audio_set_params(p);
 }
 
 void live_tick() {
     if (cfg.playing == audio_is_paused()) audio_toggle_pause();   // ▶ → séquenceur
     audio_set_volume(cfg.volume);
+    push_audio_params();
     audio_grid_update(grid);   // dessin / nouvelle graine : le son lit toujours la grille affichée
-
-    if (!cfg.playing) return;
-    uint32_t step_ms = 60000UL / cfg.bpm / 4;
-    if (millis() - t_step < step_ms) return;
-    t_step = millis();
-    step32 = (step32 + 1) % 32;
 }
 
 // ---------------------------------------------------------------- overlay (valeur temporaire)
@@ -112,7 +176,7 @@ void gol_handle(const Event& ev) {
         case EV_CLICK_B:  nav_open(SCR_PAGE, PAGE_SET_AUDIO); page_open(PAGE_SET_AUDIO); break;
         case EV_CLICK_AB: nav_open(SCR_REC, BANK_GOL); break;
         case EV_LONG_PLAY:
-            gol_randomize(grid, cfg.density / 100.0f);
+            new_seed();
             toast("SEED");
             break;
         case EV_LONG_A: case EV_LONG_B: nav_back(); break;
@@ -138,7 +202,7 @@ static const char* const TOOL_NAMES[] = {"CRAYON", "GOMME", "INVERSE"};
 static int8_t  cur_x = 8, cur_y = 8;
 static uint8_t tool = TOOL_INVERT;
 
-static void clear_grid() { gol_clear(grid); toast("VIDE"); }
+static void clear_grid() { gol_clear(grid); live_grid_changed(); toast("VIDE"); }
 
 void draw_handle(const Event& ev) {
     switch (ev.type) {
@@ -153,6 +217,7 @@ void draw_handle(const Event& ev) {
         case EV_CLICK_A:
             if (tool == TOOL_INVERT) gol_toggle(grid, cur_x, cur_y);
             else gol_set(grid, cur_x, cur_y, tool == TOOL_PEN);
+            live_grid_changed();
             break;
         case EV_CLICK_B:
             tool = (tool + 1) % 3;

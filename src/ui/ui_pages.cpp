@@ -18,9 +18,11 @@ struct Setting {
 
 static const char* const SCALES[]  = {"JAPONAISE", "PENTA", "PENTA MIN", "LYDIEN", "MIXOLYDIEN", "PHRYGIEN"};
 static const char* const TONICS[]  = {"C", "C+", "D", "D+", "E", "F", "F+", "G", "G+", "A", "A+", "B"};
-static const char* const OCTAVES[] = {"1", "2", "3", "4", "5"};
+static const char* const OCTAVES[] = {"1", "2", "3", "4", "5"};   // octave de la note la plus grave (3 = La3 par défaut)
 static const char* const TIMBRES[] = {"CRISTAL", "PIANO", "ORGUE", "PAD", "BASSE", "MARIMBA", "LIBRE"};
 static const char* const ONOFF[]   = {"OFF", "ON"};
+static const char* const ARPMODES[] = {"UP", "DOWN", "RANDOM", "PING PONG", "TIERCE", "QUINTE", "ACCORD"};
+static const char* const ARPDIVS[]  = {"X1", "X2", "X3", "X4", "X6", "X8"};
 static const char* const RULES[]   = {"CONWAY", "CORAL", "DENSE", "BUILDER", "SYMETRIC", "HIGHLIFE", "BALANCED"};  // même ordre que GOL_RULES (gol.cpp)
 static const char* const EVOLS[]   = {"1 TEMPS", "2 TEMPS", "4 TEMPS", "MESURE"};
 static const char* const LOOPLEN[] = {"X2", "X4", "X8"};
@@ -40,6 +42,8 @@ static const Setting SET_AUDIO[] = {
     {"BPM", K_BAR, &cfg.bpm, 20, 140, nullptr},      {"GAMME", K_OPT, &cfg.scale, 0, 5, SCALES},
     {"TONIQUE", K_OPT, &cfg.tonic, 0, 11, TONICS},   {"OCTAVE", K_OPT, &cfg.octave, 0, 4, OCTAVES},
     {"TIMBRE", K_OPT, &cfg.timbre, 0, 6, TIMBRES},   {"ARPEGE", K_OPT, &cfg.arp, 0, 1, ONOFF},
+    {"MODE ARP", K_OPT, &cfg.arp_mode, 0, 6, ARPMODES}, {"VITESSE ARP", K_OPT, &cfg.arp_div, 0, 5, ARPDIVS},
+    {"GROOVE", K_OPT, &cfg.arp_groove, 0, 1, ONOFF},
     {"REVERB", K_BAR, &cfg.reverb, 0, 100, nullptr}, {"VOL BOOM", K_BAR, &cfg.boom_vol, 0, 100, nullptr},
     {"ATTACK", K_BAR, &cfg.attack, 0, 100, nullptr}, {"DECAY", K_BAR, &cfg.decay, 0, 100, nullptr},
 };
@@ -93,13 +97,21 @@ static int16_t  backup = 0;        // valeur avant édition (pour annuler)
 
 #define COL_POINT CRGB(255, 210, 140)   // ligne pointée : blanc chaud, distinct des couleurs de page
 
+static void init_tracks() {
+    static bool init = false;
+    if (init) return;
+    for (auto& tv : track_vals) { tv[0] = 50; tv[1] = 40; tv[2] = 60; tv[3] = 80; tv[4] = 2; tv[6] = 100; }
+    init = true;
+}
+
+int16_t track_value(uint8_t track, uint8_t which) {
+    init_tracks();
+    return track_vals[track][which];
+}
+
 static void build_track_page(uint8_t t) {
     static const char* const NAMES[8] = {"PITCH", "DECAY", "TONE", "VOLUME", "PAN", "SWING", "PROBA", "MUTE"};
-    static bool init = false;
-    if (!init) {
-        for (auto& tv : track_vals) { tv[0] = 50; tv[1] = 40; tv[2] = 60; tv[3] = 80; tv[4] = 2; tv[6] = 100; }
-        init = true;
-    }
+    init_tracks();
     for (int i = 0; i < 8; i++) {
         Kind k = (i == 4 || i == 7) ? K_OPT : K_BAR;
         const char* const* lab = i == 4 ? PANS : i == 7 ? NOYES : nullptr;
