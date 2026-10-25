@@ -129,3 +129,27 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 - [ ] Soudure des 2 encodeurs (option 1 ci-dessus) puis `ENC_SINGLE_CHANNEL 0`
 - [ ] Lister et corriger les petits bugs UI ; améliorer la navigation dans les presets
 - [ ] Figer aussi FastLED 3.10.3 dans `env:esp32dev` et `env:led_test` (encore en `^3.6.0`)
+
+---
+## 2026-10-26 — Encodeurs réparés, son dans `ui_test`, diagnostic du bruit
+
+**Fait :**
+- **Encodeurs réparés** (Felix) : condensateurs 100 nF **retirés**, fil GPIO directement sur la broche A. `ENC_SINGLE_CHANNEL 0` ; sens inversé pour que horaire = descendre / augmenter (`INVERT_A/B 1`). Quadrature propre (4 transitions par cran, aucun rebond vu)
+- **Son dans `ui_test`** : Mozzi + `audio.cpp` ajoutés à l'env ; l'horloge du séquenceur fait avancer le GoL (callback par temps) et la tête de lecture ; ▶ = pause/reprise du son ; molette droite = volume (`audio_set_volume`). Pas encore reliés : BPM, gamme, timbre… ; la BOOM n'est pas reliée aux percussions de `audio.cpp`
+- **Presets (REC)** déplacés dans `src/ui/ui_rec.cpp` : clic gauche = aperçu du nom, ▶ = charger + lancer, clic droit = sauver (vide) / ANNULER-ECRASER-SUPPRIMER (occupé) ; **saisie de nom** 12 caractères façon borne d'arcade ; molette gauche = case par case, droite = ligne par ligne. Presets en RAM (NVS à l'étape 4)
+- **Réglages en 2 temps** : tourner = ligne (blanc chaud), clic droit = éditer (clignote, valeur affichée, effet en direct), clic droit = valider, clic gauche / appui long = annuler-revenir
+- **Appui long ▶ = retour au GOL** depuis partout (sauf GOL = graine, DRAW = effacer)
+- Toasts longs : défilent en entier au lieu d'être coupés
+- **SYS > TEST LED** (NORMAL / NOIR / FIGE / SANS DITHER) pour le diagnostic du bruit
+
+**Diagnostic du bruit** (détail : `docs/analyses/20261025_interferences_leds_audio.md` §5) :
+- Ce ne sont **pas** les LEDs, ni l'ESP32, ni le PAM8403, ni le jack : le sifflement reste ESP32 éteint, et **suit la sortie LOUT du TDA2822** quand on inverse LOUT/ROUT
+- Remède commandé : **filtre RC 10 Ω + 1000 µF 16 V** sur le VCC du TDA2822 ; plan B : réseau Zobel 4,7 Ω + 100 nF, ou contourner le TDA
+
+**Retours UX de Felix :** menus "pas mal dans l'ensemble" ; mode édition à valider après essai.
+
+**Prochaines étapes :**
+- [ ] Poser le filtre RC sur le TDA2822 à réception des composants → réécouter
+- [ ] Valider (ou non) le mode édition des réglages
+- [ ] Relier BPM / gamme / timbre / BOOM au son
+- [ ] Figer aussi FastLED 3.10.3 dans `env:esp32dev` et `env:led_test`

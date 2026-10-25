@@ -153,3 +153,36 @@ Mais en pratique, mieux vaut brancher le Sleeve du jack **directement sur une br
 > 🎓 **Masse en étoile (star grounding)** : faire revenir chaque signal sensible (MIDI, audio, DAC) le plus directement possible vers une seule et même broche GND "propre" (ici, celle de l'ESP32), plutôt que de piquer le GND n'importe où sur un bus qui transporte aussi du courant de puissance. Ça ne change rien en courant continu, mais ça évite d'injecter du bruit dans les signaux les plus sensibles.
 
 **En pratique pour LIF2D** : Sleeve du jack MIDI → broche GND de l'ESP32 (pas directement le bloc Wago GND). Même logique pour le Sleeve du jack audio 5 broches.
+
+---
+
+## Chasser un bruit audio — méthode par élimination (2026-10-26)
+
+**Principe** : ne rien acheter avant de savoir **où** le bruit entre. Un test = on supprime UNE source possible
+et on écoute si le bruit change. Le détail des tests LIF2D est dans
+`docs/analyses/20261025_interferences_leds_audio.md` §5.
+
+| Question | Test | Si le bruit reste… |
+|---|---|---|
+| Vient-il du son joué ? | ▶ STOP | …ce n'est pas la musique |
+| Entre-t-il par le signal ? | Potentiomètre de l'ampli au minimum (entrée à la masse) | …il entre **après** l'entrée (alim, masse, sortie) |
+| Est-ce l'ESP / les LEDs ? | Éteindre l'ESP | …ils sont innocents |
+| Quel côté est fautif ? | **Inverser gauche/droite** à un point de la chaîne | S'il **change de côté**, la cause est **avant** ce point ; s'il **reste**, elle est **après** |
+
+**L'inversion L/R est l'outil le plus puissant** : en 3 minutes, elle a montré que c'était le canal gauche du
+module TDA2822, et pas le jack ou les soudures.
+
+### Notions rencontrées
+
+- **Boucle de masse** : deux chemins de masse entre deux modules forment une boucle ; le courant de l'un passe
+  dans les pistes de masse de l'autre et y crée de minuscules tensions, amplifiées comme du son. (Testé :
+  pas la cause sur LIF2D, mais classique.)
+- **Alim à découpage en "rafales"** : à faible charge, une alim comme la LRS-75-5 ne découpe plus en continu
+  mais par paquets, à une fréquence qui peut tomber dans l'audible et **varie avec le courant demandé**
+  (d'où un ton qui change avec l'écran sans que l'écran soit la vraie source).
+- **Oscillation d'un ampli** : un canal qui siffle tout seul, même sans entrée, comme un effet Larsen interne.
+  Remèdes : bon découplage de l'alim au plus près, **réseau Zobel** (4,7 Ω + 100 nF en série, sortie → GND).
+- **Soudure froide** : étain posé sans que la broche ait chauffé → terne, granuleuse, en boule ; contact
+  fragile qui craque quand on bouge. Refaire en chauffant **broche + fil ensemble** 2–3 s avant l'étain.
+- **Entrée en l'air** : une entrée d'ampli reliée à rien (ou par une grande résistance) capte le 50 Hz du secteur
+  → bourdonnement grave. Disparaît dès qu'une source (le DAC) pilote l'entrée.

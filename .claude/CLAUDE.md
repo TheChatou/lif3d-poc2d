@@ -72,7 +72,7 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **Protection puissance LEDs** : `FastLED.setMaxPowerInVoltsAndMilliamps(5, 10000)` dans setup() — pas setBrightness seul
 - Alimentation : **Mean Well LRS-75-5 (5V/14A)** — tout en 5V direct, aucun buck intermédiaire
 - Mozzi + FastLED → cœurs FreeRTOS séparés OBLIGATOIRE (conflit d'interruptions sinon)
-- Encodeurs EC11 : décodage quadrature par table sur interruptions (`src/ui/input.cpp`) = anti-rebond logiciel suffisant. Condo 100nF **facultatif**, et s'il est mis : **entre ROTA et GND (en parallèle), JAMAIS en série** sur le fil (erreur trouvée le 2026-10-25)
+- Encodeurs EC11 : décodage quadrature par table sur interruptions (`src/ui/input.cpp`) = anti-rebond logiciel suffisant. Condos 100nF **retirés** (2026-10-26) ; s'ils sont remis : **entre ROTA et GND (en parallèle), JAMAIS en série** sur le fil
 - Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` pour l'âge
 - ADC : utiliser **uniquement ADC1** (GPIO 32–39) — ADC2 incompatible avec certains timers Mozzi
 - PAM8403 : entrée LINE IN 3.3V direct depuis DAC ESP32 ✅ — optionnel : condo 100µF si bruit DC
@@ -96,7 +96,7 @@ src/
 ├── audio.h / audio.cpp ← séquenceur Mozzi, mapping GoL→notes
 └── controls.h / controls.cpp ← encodeurs, potentiomètres, boutons
 src/ui/              ← système de menus (polices, affichage, entrées, hub, pages, BOOM…) — testé via env:ui_test
-test_ui/main.cpp     ← firmware de test des menus (sans son)
+test_ui/main.cpp     ← firmware de test des menus (avec son Mozzi)
 tools/fonts_src.py + gen_fonts.py ← polices pixel (source) → src/ui/font_data.h
 include/
 └── config.h          ← toutes les constantes (#define) et attribution pins GPIO
@@ -211,12 +211,12 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [x] **Étape 1 — Conception UI** (2026-10-24) : gestes, conventions, écrans, typos → `docs/analyses/20261024_ui_grammaire_controles.md`, `20261024_actions_et_conventions_machines.md`, `20261024_ecrans_maquettes_16x16.md` (§0 = révision v2 qui fait foi), `20261024_typographies_16x16.md`
 - [x] ~~Étape 2 — Simulateur web~~ → remplacé par un **firmware de test directement sur la boîte** (`env:ui_test`, `src/ui/` + `test_ui/main.cpp`) — 1re version validée "dans l'ensemble" par Felix le 2026-10-25
 - [ ] **Étape 3 — Itérer sur `ui_test`** : corriger les petits bugs, déplacement dans les presets peu pratique, retester la lisibilité des pages de réglages (variante "réglage en gros" si besoin)
-- [ ] **Étape 3b — Musique dans `ui_test`** (prévu 2026-10-26) : brancher Mozzi/`audio.cpp` sur la grille GoL de l'UI (attention : Mozzi + FastLED sur le même cœur → craquements possibles)
-- [ ] **Étape 3c — Réparer les 2 encodeurs** (matériel) : condo 100 nF câblé EN SÉRIE sur la broche A → le ponter / le retirer (voir `docs/progress.md` 2026-10-25), puis `ENC_SINGLE_CHANNEL 0` dans `src/ui/input.cpp`
+- [x] **Étape 3b — Musique dans `ui_test`** (2026-10-26) : Mozzi/`audio.cpp` branché, l'horloge du séquenceur fait avancer le GoL ; ▶ et volume reliés. Reste à relier BPM/gamme/timbre/BOOM (étape 5)
+- [x] **Étape 3c — Réparer les 2 encodeurs** (2026-10-26) : condos retirés, `ENC_SINGLE_CHANNEL 0`, `INVERT_A/B 1` (horaire = descendre/augmenter)
 - [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal + sauvegarde NVS
 - [ ] **Étape 5 — Audio** : relier les réglages (BPM, gamme, timbre…) à `audio.cpp` + **gain staging TDA2822 / PAM8403**
 - [ ] **Étape 6 — Assemblage** : `src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
-- [ ] **Interférences LEDs → audio** (matériel, au retour) : `docs/analyses/20261025_interferences_leds_audio.md`
+- [ ] **Sifflement audio = canal GAUCHE du module TDA2822** (diagnostic 2026-10-26, ce ne sont PAS les LEDs) : filtre RC 10 Ω + 1000 µF sur son VCC commandé ; plans B (Zobel, contourner le TDA, MAX98357A) → `docs/analyses/20261025_interferences_leds_audio.md` §5
 - [x] Condos de découplage 100µF en sortie TDA2822 : présents sur le module (vérifié visuellement 2026-10-24)
 
 ---
@@ -249,7 +249,10 @@ Quand Felix demande une analyse, un compte-rendu, un bilan, une comparaison ou t
 Fichiers pédago existants :
 - `docs/pedago/20260612_electronique_alimentation.md` — V/A/W, buck, LDO, OCP/OVP/SCP, LRS-75-5
 - `docs/pedago/20260612_esp32_gpio_reference.md` — strapping pins, input-only, ADC1 vs ADC2, UART, GND commun
-- `docs/pedago/20260612_audio_midi_circuit.md` — PAM8403 (3W réels), protection HP, UART/MIDI, DIN-5, TRS
+- `docs/pedago/20260612_audio_midi_circuit.md` — PAM8403 (3W réels), protection HP, UART/MIDI, DIN-5, TRS, chasse au bruit audio par élimination
+- `docs/pedago/20260915_condensateurs_debounce_dc_blocking.md` — anti-rebond, série vs parallèle (bug encodeurs), découplage 100 nF + électrolytique, filtre RC d'alim, ESR
+- `docs/pedago/20261026_firmware_environnements_platformio.md` — firmware, environnements `[env:…]`, versions figées
+- `docs/pedago/20260612_electronique_alimentation.md` — + section USB / VIN / secteur (qui alimente quoi)
 
 ### Pédagogie — priorité absolue
 

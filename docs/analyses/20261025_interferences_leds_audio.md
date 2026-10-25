@@ -1,6 +1,8 @@
 # LIF2D — Interférences audio liées aux LEDs (+ bruit sur un seul HP)
 
 > 2026-10-25 — Mis de côté : à traiter au retour, avec le matériel (condensateurs, ferrites, fer à souder).
+>
+> **2026-10-26 — Diagnostic refait (voir §5, qui fait foi) : ce ne sont PAS les LEDs. Le sifflement vient du canal GAUCHE du module TDA2822.** Les §2–4 ci-dessous sont gardés pour l'historique.
 
 ---
 
@@ -72,3 +74,61 @@ du ronflement. Ce n'est vrai **que pendant le développement** : la boîte finie
 6. Régler le gain staging (#7) une fois le bruit de fond réglé.
 
 Voir aussi : `docs/pedago/20260915_condensateurs_debounce_dc_blocking.md`, `docs/pedago/20260612_audio_midi_circuit.md` (masse en étoile).
+
+---
+
+## 5. Diagnostic du 2026-10-26 (fait foi)
+
+Contexte : firmware `ui_test` **avec le son** (Mozzi). Bruit "insupportable" au casque et aux HP.
+Tous les tests en config **autonome** (USB débranché, VIN branché, secteur), sauf mention.
+
+### 5.1 Tests par élimination
+
+| # | Test | Résultat | Conclusion |
+|---|---|---|---|
+| 0 | Référence | Sifflement **aigu, surtout à GAUCHE**, au casque ET aux HP (HP : proportionnel au potar du PAM). + un bruit grave plus faible sur les 2 côtés | — |
+| — | Luminosité haute / basse | Le ton change, **pas la force** | La luminosité n'est pas la cause |
+| — | SYS > TEST LED : NOIR (LEDs éteintes, trames envoyées) / FIGE (plus aucune trame) | Toujours là, ton un peu plus grave | **Pas le courant des LEDs, pas les données** |
+| — | SYS > TEST LED : SANS DITHER | Identique | Pas le logiciel FastLED |
+| — | USB débranché, VIN + secteur | Identique | Pas la boucle de masse du PC |
+| 1 | ▶ STOP (pas de musique) | Toujours là | Pas le son lui-même |
+| 2 | Potentiomètre du TDA2822 | Baisse la musique, **pas le bruit** (au minimum on n'entend plus que lui) | Le bruit entre **après** l'entrée du TDA |
+| 3 | 5V du PAM8403 débranché (écoute casque) | Identique | Pas le PAM8403 |
+| 4 | GND d'entrée du TDA (vers l'ESP) débranché | Identique | Pas la boucle de masse ESP ↔ TDA |
+| 5 | **ESP32 éteint** (VIN et USB débranchés), matrice noire | **Toujours là** | Ni l'ESP, ni les LEDs |
+| 6 | **LOUT ↔ ROUT inversés au bornier du TDA** | **Le sifflement passe à DROITE** | **C'est le canal gauche du module TDA2822**, pas le jack ni le câblage |
+| — | 100 nF dans le bornier VCC/GND du TDA | À peine atténué (peut-être) | Pas une oscillation très haute fréquence pure |
+
+Le bruit grave présent entre 5 et 95 % du potar (et absent aux 2 extrémités) avec l'ESP éteint = entrée du TDA
+en l'air qui capte le 50 Hz : normal, disparaît quand le DAC pilote l'entrée.
+
+### 5.2 Hypothèses restantes
+
+1. **Sifflement de l'alim LRS-75-5 à faible charge** (mode "rafales" : la fréquence dépend du courant demandé,
+   ce qui explique que le ton changeait avec l'écran) qui passe par le VCC du TDA2822, mal filtré par la puce,
+   et mieux par le canal gauche (tracé du module).
+2. **Canal gauche du TDA2822 instable** (oscillation propre au module ou puce abîmée).
+
+### 5.3 Remède retenu (commande en cours)
+
+**Filtre RC sur l'alimentation du TDA2822** — 10 Ω en série dans le fil 5V + 1000 µF entre VCC et GND au bornier :
+
+```
+Domino 5V ──fil rouge──[ 10 Ω ]──┬──→ bornier TDA « VCC »
+                                 │ (+)
+                              1000 µF 16 V   ← bande « − » côté GND
+                                 │ (−)
+Domino GND ──fil noir────────────┴──→ bornier TDA « GND » (alim)
+```
+
+Coupure ≈ 1/(2π × 10 Ω × 1000 µF) ≈ 16 Hz : tout le sifflement audible est fortement atténué.
+Chute de tension dans les 10 Ω négligeable (TDA2822 : quelques dizaines de mA, fonctionne dès 1,8 V).
+
+**Plans B si ça ne suffit pas** (cas 2, oscillation) :
+- **Réseau Zobel** sur chaque sortie : 4,7 Ω + 100 nF en série, entre LOUT (et ROUT) et GND — stabilise un ampli qui oscille (présent dans le schéma conseillé de la fiche technique, absent de beaucoup de modules)
+- **Contourner le TDA2822** pour les HP : DAC → PAM8403 directement (le PAM accepte le niveau du DAC) ; le casque serait alors à revoir
+- **MAX98357A** (en stock, I²S numérique : ni DAC interne ni TDA) pour la sortie HP
+- Module TDA2822 de rechange : introuvable en livraison France (AliExpress) au 2026-10-26
+
+**Correction** : les perles de ferrite recommandées au §3 sont **inutiles** ici — elles filtrent au-delà du MHz,
+or ce bruit est audible (kHz). Une résistance (filtre RC) ou une self de forte valeur est nécessaire.

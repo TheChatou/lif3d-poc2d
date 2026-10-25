@@ -108,3 +108,20 @@ Résultat : **le système ne peut jamais se détruire par excès de courant LED.
 | **TOTAL typique** | **~665 mA** | **~3.3W** |
 
 LRS-75-5 utilisée à ~5% de sa capacité. Très confortable.
+
+---
+
+## USB + VIN + secteur : qui alimente quoi ? (leçon du 2026-10-25)
+
+La carte ESP32 a **deux entrées 5 V reliées entre elles** sur la carte : le connecteur **USB** et la broche **VIN**. Dans LIF2D, VIN est branché sur le bus 5 V (Wago) du LRS-75-5, qui alimente aussi la matrice et les amplis.
+
+| Situation | Ce qui se passe | Verdict |
+|---|---|---|
+| Secteur seul, VIN branché | Le LRS (14 A) alimente tout, ESP32 compris via VIN | ✅ usage normal |
+| **USB seul, VIN branché** | Le 5 V USB **ressort par VIN** et alimente le bus → matrice + amplis tirés depuis le port USB du PC (0,5–0,9 A max, contre ~10 A possibles pour les LEDs) → tension qui s'écroule, ESP32 qui redémarre, flash qui échoue, diode de la carte et port du PC sollicités | ❌ ce qui s'est passé (matrice blanche, flash raté) |
+| **USB + secteur, VIN branché** | **Deux alimentations 5 V reliées ensemble** (LRS ≈ 5,0–5,1 V, USB ≈ 4,75–5,25 V). La plus haute pousse du courant dans l'autre ; si la carte n'a pas de diode de protection côté USB, ce courant peut **remonter dans le port USB du PC**. + boucle de masse = bruit | ⚠️ à éviter |
+| **USB + secteur, VIN débranché, GND commun** | USB → ESP32 seul ; LRS → matrice + amplis. Chaque alimentation a son domaine, la masse commune garde le signal DATA cohérent | ✅ montage de développement |
+
+🎓 **Pourquoi garder le GND commun** : un signal (DATA des LEDs, audio) est une tension mesurée **par rapport à la masse**. Si l'ESP32 et la matrice n'ont pas la même référence, le "1" envoyé par l'ESP32 n'a plus de sens pour la matrice.
+
+**Règle** : jamais USB et VIN branchés en même temps. Pour flasher → débrancher VIN ; pour l'usage autonome → débrancher l'USB puis rebrancher VIN.
