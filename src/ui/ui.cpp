@@ -25,6 +25,7 @@ static uint32_t t_enter = 0;
 
 static const char* toast_msg = nullptr;
 static uint32_t    toast_t = 0;
+static uint16_t    toast_ms = 0;
 
 static void enter(Screen s, uint8_t arg) {
     current = s;
@@ -46,7 +47,22 @@ void nav_back() {
 
 uint32_t screen_age_ms() { return millis() - t_enter; }
 
-void toast(const char* msg) { toast_msg = msg; toast_t = millis(); }
+// 🎓 Sortie de secours : appui long ▶ = retour direct au GOL en cours, d'où
+//    qu'on soit. On vide la pile de navigation (comme un bouton "home").
+static void go_live() {
+    depth = 0;
+    cfg.led_test = LT_NORMAL;
+    disp_test_mode(LT_NORMAL);
+    enter(SCR_GOL, 0);
+}
+
+void toast(const char* msg, uint16_t ms) {
+    toast_msg = msg;
+    toast_t = millis();
+    // 🎓 Texte trop large : on le laisse affiché le temps qu'il défile en entier
+    int w = text_width(FONT_3X5P, msg);
+    toast_ms = ms ? ms : w <= DISP_W ? 900 : 800 + (w + 4) * 90;
+}
 
 // 🎓 Les 3 styles de sélection à comparer sur la vraie matrice (menu SYS).
 CRGB sel_color(CRGB base, bool selected) {
@@ -147,10 +163,17 @@ void ui_init() {
 }
 
 static void handle(const Event& ev) {
-    // ▶ = play/pause partout (sauf DIAG qui teste les boutons)
-    if (ev.type == EV_CLICK_PLAY && current != SCR_DIAG) {
+    // ▶ = play/pause partout, sauf DIAG (test des boutons), REC (▶ = charger
+    //   et lancer le preset) et la saisie de nom (▶ = valider le nom)
+    if (ev.type == EV_CLICK_PLAY && current != SCR_DIAG && current != SCR_REC && current != SCR_NAME) {
         cfg.playing = !cfg.playing;
         toast(cfg.playing ? "PLAY" : "STOP");
+        return;
+    }
+    // Appui long ▶ = retour au GOL, sauf là où il a déjà un rôle :
+    // GOL (nouvelle graine) et DRAW (effacer)
+    if (ev.type == EV_LONG_PLAY && current != SCR_GOL && current != SCR_DRAW) {
+        go_live();
         return;
     }
     switch (current) {
@@ -159,6 +182,7 @@ static void handle(const Event& ev) {
         case SCR_DRAW:    draw_handle(ev); break;
         case SCR_BOOM:    boom_handle(ev); break;
         case SCR_REC:     rec_handle(ev); break;
+        case SCR_NAME:    name_handle(ev); break;
         case SCR_PAGE:    page_handle(ev); break;
         case SCR_CONFIRM: confirm_handle(ev); break;
         case SCR_DIAG:    diag_handle(ev); break;
@@ -177,7 +201,7 @@ void ui_update() {
     uint32_t age = screen_age_ms();
     uint8_t fade = 255;
     disp_clear();
-    if (toast_msg && millis() - toast_t < 900) {
+    if (toast_msg && millis() - toast_t < toast_ms) {
         draw_text_fit(FONT_3X5P, toast_msg, 5, COL_SYS, toast_t);
     } else {
         toast_msg = nullptr;
@@ -192,6 +216,7 @@ void ui_update() {
             case SCR_DRAW:    draw_render(); overlay_render(); break;
             case SCR_BOOM:    boom_render(); overlay_render(); break;
             case SCR_REC:     rec_render(); break;
+            case SCR_NAME:    name_render(); break;
             case SCR_PAGE:    page_render(); break;
             case SCR_CONFIRM: confirm_render(); break;
             case SCR_DIAG:    diag_render(); break;

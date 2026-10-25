@@ -18,6 +18,9 @@ void audio_grid_update(const uint8_t* grid);
 void audio_toggle_pause();
 bool audio_is_paused();
 
+// Volume général 0–100 (molette droite en live ; 0 = muet)
+void audio_set_volume(uint8_t percent);
+
 // 🎓 Callback appelé par audio.cpp à CHAQUE temps, avant de choisir les
 //    notes à jouer : c'est ce qui permet au GoL d'avancer d'une génération
 //    par battement, tout en restant sur la même horloge que le séquenceur

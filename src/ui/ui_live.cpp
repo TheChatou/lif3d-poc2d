@@ -1,5 +1,6 @@
 #include "ui_internal.h"
 #include "gol.h"
+#include "audio.h"
 #include <esp_system.h>
 
 #define OVERLAY_MS   1500
@@ -8,36 +9,48 @@
 #define GRID_N        (DISP_W * DISP_H)
 
 // ---------------------------------------------------------------- horloge commune
-// 🎓 Une seule horloge pour tout le live : 1 pas = une double-croche
-//    (1/4 de temps). Le GOL lit 16 pas par balayage, la BOOM en lit 32.
+// 🎓 Le GOL suit maintenant l'horloge du séquenceur Mozzi (audio.cpp) : à
+//    chaque temps, audio.cpp appelle on_beat() AVANT de choisir ses notes,
+//    donc le son et les LEDs montrent toujours la même génération.
+//    La tête de lecture = la colonne que le séquenceur est en train de jouer.
+//    La BOOM garde son horloge millis() (pas encore reliée au son).
 static uint32_t t_step = 0;
-static uint8_t  step16 = 0, step32 = 0;
-static uint16_t steps_total = 0;
+static uint8_t  step32 = 0;
+static uint16_t beats_total = 0;
 
-uint8_t live_step16() { return step16; }
 uint8_t live_step32() { return step32; }
 
 static uint8_t grid[GRID_N], grid_next[GRID_N];
 
+uint8_t* live_grid() { return grid; }
+
+static void on_beat() {
+    // 🎓 SET GOL > EVOLUTION : une génération tous les 1, 2, 4 ou 16 temps
+    static const uint8_t EVERY[] = {1, 2, 4, 16};
+    if (++beats_total % EVERY[cfg.evolution] == 0) {
+        gol_step(grid, grid_next, cfg.rule);
+        gol_copy(grid_next, grid);
+    }
+    audio_grid_update(grid);
+}
+
 void live_init() {
     gol_seed(esp_random());
     gol_randomize(grid, cfg.density / 100.0f);
+    audio_grid_update(grid);
+    audio_set_gol_step_callback(on_beat);
 }
 
 void live_tick() {
+    if (cfg.playing == audio_is_paused()) audio_toggle_pause();   // ▶ → séquenceur
+    audio_set_volume(cfg.volume);
+    audio_grid_update(grid);   // dessin / nouvelle graine : le son lit toujours la grille affichée
+
     if (!cfg.playing) return;
     uint32_t step_ms = 60000UL / cfg.bpm / 4;
     if (millis() - t_step < step_ms) return;
     t_step = millis();
-    step16 = (step16 + 1) % 16;
     step32 = (step32 + 1) % 32;
-    steps_total++;
-    // 🎓 Rythme d'évolution du GoL (réglage SET GOL > EVOLUTION) : tous les 4, 8 ou 16 pas
-    static const uint8_t EVERY[] = {4, 8, 16, 16};
-    if (steps_total % EVERY[cfg.evolution] == 0) {
-        gol_step(grid, grid_next, cfg.rule);
-        gol_copy(grid_next, grid);
-    }
 }
 
 // ---------------------------------------------------------------- overlay (valeur temporaire)
@@ -109,6 +122,7 @@ void gol_handle(const Event& ev) {
 
 void gol_render() {
     const CRGB playhead = CRGB(255, 120, 0);
+    uint8_t step16 = audio_current_col();
     for (int y = 0; y < DISP_H; y++) {
         disp_set(step16, y, dim(COL_SYS));
         for (int x = 0; x < DISP_W; x++) {

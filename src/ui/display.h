@@ -21,5 +21,9 @@ void disp_set_brightness(uint8_t b);                  // 0–255, luminosité gl
 uint8_t disp_brightness();
 void disp_show(uint8_t fade = 255);                   // fade < 255 = fondu vers le noir
 
+// Test interférences LEDs → audio (SYS > TEST LED)
+enum LedTest : uint8_t { LT_NORMAL, LT_BLACK, LT_FROZEN, LT_NO_DITHER };
+void disp_test_mode(uint8_t mode);
+
 // Couleur "faible" dérivée d'une couleur de base (environ 1/7 de l'intensité).
 CRGB dim(CRGB c);

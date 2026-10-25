@@ -11,6 +11,7 @@
 static CRGB    fb[DISP_W * DISP_H];  // l'image logique, en (x, y)
 static CRGB    leds[LED_COUNT];      // l'ordre physique des LEDs
 static uint8_t brightness = LED_DEFAULT_BRIGHTNESS;
+static uint8_t test_mode = LT_NORMAL;
 
 // 🎓 Câblage en serpentin : la ligne 0 va de gauche à droite, la ligne 1
 //    revient de droite à gauche, etc. (même mapping que src/main.cpp).
@@ -58,7 +59,20 @@ uint8_t disp_brightness() {
     return brightness;
 }
 
+// 🎓 3 tests pour trouver d'où vient le bruit dans l'audio :
+//    NOIR      : LEDs éteintes, mais les trames sont toujours envoyées
+//                → bruit parti = c'est le COURANT des LEDs.
+//    FIGE      : la dernière image reste allumée, plus aucune trame envoyée
+//                → bruit toujours là = PWM interne des LEDs ; parti = l'envoi des données.
+//    SANS DITHER : FastLED ne fait plus "trembler" les couleurs faibles d'une image à l'autre.
+void disp_test_mode(uint8_t mode) {
+    test_mode = mode;
+    FastLED.setDither(mode == LT_NO_DITHER ? DISABLE_DITHER : BINARY_DITHER);
+}
+
 void disp_show(uint8_t fade) {
+    if (test_mode == LT_FROZEN) return;
+    if (test_mode == LT_BLACK) fade = 0;
     for (int y = 0; y < DISP_H; y++) {
         for (int x = 0; x < DISP_W; x++) {
             CRGB c = fb[y * DISP_W + x];

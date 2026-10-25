@@ -264,6 +264,15 @@ bool audio_is_paused() {
     return paused;
 }
 
+// 🎓 Volume en "fixed-point" /256 : multiplier puis décaler de 8 bits (>> 8)
+//    revient à multiplier par master_vol/256, sans calcul à virgule (lent)
+//    dans updateAudio(), appelée 32 768 fois par seconde.
+static volatile uint16_t master_vol = 256;
+
+void audio_set_volume(uint8_t percent) {
+    master_vol = (uint16_t)min<uint8_t>(percent, 100) * 256 / 100;
+}
+
 void updateControl() {
     // 🎓 Mozzi ADSR a 2 méthodes séparées : next() (déjà appelée dans
     //    updateAudio(), à la cadence audio) fait juste l'interpolation entre
@@ -327,5 +336,5 @@ int updateAudio() {
     int16_t out = dry + (int16_t)(((int32_t)wet * REVERB_MIX) >> 8) + kick + snare + hat;
     if (out >  127) out =  127; // 🎓 clip de sécurité : reste dans la plage int8 attendue par le DAC
     if (out < -128) out = -128;
-    return out;
+    return (out * master_vol) >> 8;
 }

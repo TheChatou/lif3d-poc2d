@@ -16,6 +16,8 @@ static uint32_t pattern[8] = {
 };
 static int8_t boom_x = 0, boom_t = 0;   // curseur : pas (0–31) et piste (0–7)
 
+uint32_t* boom_pattern() { return pattern; }   // pour REC BOOM (sauver / charger)
+
 void boom_handle(const Event& ev) {
     switch (ev.type) {
         case EV_TURN_A:
@@ -52,48 +54,11 @@ void boom_render() {
     if ((millis() / 250) % 2) disp_set(cx, cy, COL_ACCENT);   // curseur clignotant
 }
 
-// ---------------------------------------------------------------- REC (presets)
-static uint16_t occupied[3] = {0b0000001000100111, 0b0000000000000011, 0b0000000000010101};
-static uint8_t  bank = 0;
-static int8_t   slot = 0;
-
-void rec_open(uint8_t b) { bank = b; }
-
-static void delete_slot() { occupied[bank] &= ~(1 << slot); toast("SUPPRIME"); }
-
-void rec_handle(const Event& ev) {
-    int x = slot % 4, y = slot / 4;
-    switch (ev.type) {
-        case EV_TURN_A: x = (x + ev.delta + 32) % 4; slot = y * 4 + x; break;
-        case EV_TURN_B: y = (y + ev.delta + 32) % 4; slot = y * 4 + x; break;
-        case EV_CLICK_A: toast(occupied[bank] & (1 << slot) ? "CHARGE" : "VIDE"); break;
-        case EV_CLICK_B:
-            if (occupied[bank] & (1 << slot)) confirm_open("SUPPRIMER ?", delete_slot);
-            else { occupied[bank] |= (1 << slot); toast("SAUVE"); }
-            break;
-        case EV_LONG_A: case EV_LONG_B: nav_back(); break;
-        default: break;
-    }
-}
-
-void rec_render() {
-    CRGB base = bank == BANK_GOL ? COL_VISUAL : bank == BANK_BOOM ? COL_BOOM : COL_SOUND;
-    for (int k = 0; k < 16; k++) {
-        int x0 = (k % 4) * 4, y0 = (k / 4) * 4;
-        CRGB c = sel_color(base, k == slot);
-        if (occupied[bank] & (1 << k)) {
-            for (int d = 0; d < 9; d++) disp_set(x0 + d % 3, y0 + d / 3, c);   // carré plein = enregistré
-        } else {
-            disp_set(x0 + 1, y0 + 1, c);                                       // point seul = vide
-        }
-    }
-}
-
 // ---------------------------------------------------------------- DIAG
 // 🎓 Affiche les valeurs BRUTES des encodeurs : si une molette ne bouge pas,
 //    ou que le compteur avance de 2 au lieu de 4 par cran, on le voit ici.
 void diag_handle(const Event& ev) {
-    if (ev.type == EV_LONG_PLAY) nav_back();   // seule sortie : appui long ▶
+    (void)ev;   // seule sortie : appui long ▶ (géré dans ui.cpp → retour au GOL)
 }
 
 void diag_render() {

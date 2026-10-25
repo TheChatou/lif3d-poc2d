@@ -4,8 +4,8 @@
 #include "esp_timer.h"
 
 #define STEPS_PER_DETENT  4    // EC11 : 4 transitions par cran (à vérifier sur l'écran DIAG)
-#define INVERT_A          0    // passer à 1 si la molette tourne "à l'envers"
-#define INVERT_B          0
+#define INVERT_A          1    // 1 = horaire positif (validé sur la boîte 2026-10-26)
+#define INVERT_B          1
 #define DEBOUNCE_MS      30
 #define LONG_PRESS_MS   600
 #define QUEUE_SIZE       16
@@ -13,8 +13,8 @@
 // ⚠ MODE DÉPANNAGE (2026-10-25) : le contact A des 2 encodeurs ne remonte pas
 //    (condensateur 100 nF câblé EN SÉRIE sur le fil A au lieu d'entre A et GND).
 //    Avec le seul contact B on compte les crans mais pas le sens :
-//    tourner = +1, tourner molette enfoncée = -1. Remettre à 0 après réparation.
-#define ENC_SINGLE_CHANNEL  1
+//    tourner = +1, tourner molette enfoncée = -1. Réparé le 2026-10-26 → 0.
+#define ENC_SINGLE_CHANNEL  0
 #define SINGLE_DEBOUNCE_US  5000
 
 // ---------------------------------------------------------------- encodeurs

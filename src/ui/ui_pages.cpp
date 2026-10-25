@@ -2,7 +2,6 @@
 
 #define VISIBLE_ROWS    8     // moitié haute : une ligne de LEDs par réglage
 #define LABEL_Y        10     // moitié basse : nom (ou valeur) du réglage
-#define VALUE_SHOW_MS 1500    // durée d'affichage de la valeur après un changement
 
 // 🎓 Un réglage ne stocke pas sa valeur : il POINTE vers elle (int16_t*).
 //    Ainsi la page SET AUDIO et l'écran GOL modifient la même variable,
@@ -34,6 +33,7 @@ static const char* const HUBS[]    = {"2 NIVEAUX", "PLAT"};
 static const char* const SELS[]    = {"VIF", "CLIGNOTE", "COULEUR"};
 static const char* const PANS[]    = {"G2", "G1", "C", "D1", "D2"};
 static const char* const NOYES[]   = {"NON", "OUI"};
+static const char* const LEDTESTS[] = {"NORMAL", "NOIR", "FIGE", "SANS DITHER"};
 static int16_t dummy_action = 0;
 
 static const Setting SET_AUDIO[] = {
@@ -56,7 +56,7 @@ static const Setting SET_BOOM[] = {
 static const Setting SET_SYS[] = {
     {"DEMARRAGE", K_OPT, &cfg.boot_style, 0, 1, BOOTS}, {"HUB", K_OPT, &cfg.hub_style, 0, 1, HUBS},
     {"SELECTION", K_OPT, &cfg.sel_style, 0, 2, SELS},   {"LUMINOSITE", K_BAR, &cfg.brightness, 8, 255, nullptr},
-    {"DIAG", K_ACTION, &dummy_action, 0, 0, nullptr},
+    {"TEST LED", K_OPT, &cfg.led_test, 0, 3, LEDTESTS}, {"DIAG", K_ACTION, &dummy_action, 0, 0, nullptr},
 };
 
 // Réglages d'une piste de la BOOM (8 pistes × 8 valeurs)
@@ -88,6 +88,10 @@ static CRGB page_color(uint8_t id) {
 
 static uint8_t  page = 0, sel = 0;
 static uint32_t t_sel = 0, t_value = 0;
+static bool     editing = false;   // false = on choisit la ligne, true = on change sa valeur
+static int16_t  backup = 0;        // valeur avant édition (pour annuler)
+
+#define COL_POINT CRGB(255, 210, 140)   // ligne pointée : blanc chaud, distinct des couleurs de page
 
 static void build_track_page(uint8_t t) {
     static const char* const NAMES[8] = {"PITCH", "DECAY", "TONE", "VOLUME", "PAN", "SWING", "PROBA", "MUTE"};
@@ -111,31 +115,74 @@ void page_open(uint8_t id, uint8_t track) {
     sel = 0;
     t_sel = millis();
     t_value = 0;
+    editing = false;
 }
 
+static void apply(const Setting& s) {
+    if (s.value == &cfg.brightness) disp_set_brightness(cfg.brightness);
+    if (s.value == &cfg.led_test) disp_test_mode(cfg.led_test);
+}
+
+// TEST LED : en NOIR / FIGE on ne voit plus l'écran → dès qu'on sort de
+// l'édition (clic ou appui long), on revient à NORMAL pour ne pas rester aveugle.
+static void end_edit(const Setting& s) {
+    editing = false;
+    t_sel = millis();
+    if (s.value == &cfg.led_test) { cfg.led_test = LT_NORMAL; apply(s); }
+}
+
+// 🎓 Édition en 2 temps : tourner = choisir la ligne, clic droit = "j'édite",
+//    tourner = changer la valeur (EN DIRECT, pour entendre/voir l'effet),
+//    clic droit = valider ; clic gauche ou appui long = annuler / revenir.
+//    Partout ici : DROITE = avancer/valider, GAUCHE = reculer.
 void page_handle(const Event& ev) {
     const Page& p = pages[page];
     const Setting& s = p.items[sel];
-    if (ev.type == EV_TURN_A) {
-        sel = constrain(sel + ev.delta, 0, p.count - 1);
-        t_sel = millis();
-        t_value = 0;
-    } else if (ev.type == EV_TURN_B && s.kind != K_ACTION) {
+    bool turn  = ev.type == EV_TURN_A || ev.type == EV_TURN_B;
+    bool ok    = ev.type == EV_CLICK_B;
+    bool back  = ev.type == EV_CLICK_A || ev.type == EV_LONG_A || ev.type == EV_LONG_B;
+    if (!editing) {
+        if (turn) {
+            sel = constrain(sel + ev.delta, 0, p.count - 1);
+            t_sel = millis();
+        } else if (ok && s.kind == K_ACTION) {
+            nav_open(SCR_DIAG);
+        } else if (ok) {
+            editing = true;
+            backup = *s.value;
+            t_value = millis();
+        } else if (back) {
+            nav_back();
+        }
+        return;
+    }
+    if (turn) {
         // 🎓 Barre : pas de 5 % de la plage, ou de 1 si la molette est enfoncée (réglage fin)
         int step = (s.kind == K_BAR && !ev.pushed) ? max(1, (s.max - s.min) / 20) : 1;
         *s.value = constrain(*s.value + ev.delta * step, s.min, s.max);
-        if (s.value == &cfg.brightness) disp_set_brightness(cfg.brightness);
+        apply(s);
         t_value = millis();
-    } else if ((ev.type == EV_CLICK_B || ev.type == EV_CLICK_A) && s.kind == K_ACTION) {
-        nav_open(SCR_DIAG);
-    } else if (ev.type == EV_LONG_A || ev.type == EV_LONG_B) {
-        nav_back();
+    } else if (ok) {
+        end_edit(s);
+        toast("OK", 400);
+    } else if (back) {
+        *s.value = backup;
+        apply(s);
+        end_edit(s);
+        toast("ANNULE", 600);
     }
 }
 
-static void draw_row(int y, const Setting& s, CRGB base, bool selected) {
-    CRGB on = sel_color(base, selected);
-    CRGB off = selected ? dim(base) : CRGB::Black;
+enum RowState : uint8_t { ROW_NORMAL, ROW_POINTED, ROW_EDITING };
+
+static void draw_row(int y, const Setting& s, CRGB base, RowState st) {
+    CRGB on = dim(base), off = CRGB::Black;
+    if (st == ROW_POINTED) { on = COL_POINT; off = dim(COL_POINT); }
+    if (st == ROW_EDITING) {
+        on = base;
+        if ((millis() / 300) % 2) on.nscale8(150);   // 🎓 nscale8 : assombrit la couleur (×150/256) → léger clignotement
+        off = dim(base);
+    }
     if (s.kind == K_BAR) {
         int fill = (int32_t)(*s.value - s.min) * DISP_W / (s.max - s.min);
         for (int x = 0; x < DISP_W; x++) disp_set(x, y, x < fill ? on : off);
@@ -154,10 +201,11 @@ void page_render() {
     const Page& p = pages[page];
     int start = constrain((int)sel - VISIBLE_ROWS / 2 + 1, 0, max(0, p.count - VISIBLE_ROWS));
     for (int r = 0; r < VISIBLE_ROWS && start + r < p.count; r++) {
-        draw_row(r, p.items[start + r], page_color(page), start + r == sel);
+        RowState st = start + r != sel ? ROW_NORMAL : editing ? ROW_EDITING : ROW_POINTED;
+        draw_row(r, p.items[start + r], page_color(page), st);
     }
     const Setting& s = p.items[sel];
-    bool show_value = t_value && millis() - t_value < VALUE_SHOW_MS;
+    bool show_value = editing && s.kind != K_ACTION;   // en édition : la valeur reste affichée
     char buf[12];
     const char* txt = s.name;
     if (show_value) {

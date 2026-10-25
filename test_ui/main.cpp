@@ -3,9 +3,10 @@
 #include "ui/display.h"
 #include "ui/input.h"
 #include "ui/ui.h"
+#include "audio.h"
 
-// 🎓 Firmware de TEST des menus : pas de son (pas de Mozzi), juste l'interface
-//    sur la vraie matrice avec les vraies molettes. Les modules src/ui/ seront
+// 🎓 Firmware de TEST des menus, avec le son (Mozzi) : l'interface sur la
+//    vraie matrice avec les vraies molettes. Les modules src/ui/ seront
 //    réutilisés tels quels dans le firmware final.
 //
 //    Flash : pio run -e ui_test -t upload
@@ -13,15 +14,10 @@
 
 #define USB_MAX_MA      400
 #define SAFE_BRIGHTNESS  20   // comme led_test : on monte ensuite via SYS > LUMINOSITE
+#define FRAME_MS         20   // 🎓 50 images/s : assez fluide, et laisse du temps à Mozzi
 
 void setup() {
     Serial.begin(115200);
-
-    // 🎓 Sans son, les broches DAC flotteraient : les amplis capteraient alors
-    //    tous les parasites (téléphone, secteur, mains...). On les fixe à
-    //    mi-tension (128 sur 0–255) = silence propre.
-    dacWrite(AUDIO_LEFT_PIN, 128);
-    dacWrite(AUDIO_RIGHT_PIN, 128);
 
     disp_init(USB_MAX_MA);
     disp_set_brightness(SAFE_BRIGHTNESS);
@@ -35,8 +31,9 @@ void setup() {
     delay(2000);
 
     input_init();
-    ui_init();
-    Serial.println("=== LIF2D UI TEST ===");
+    ui_init();       // prépare la grille GoL et se branche sur l'horloge du séquenceur
+    audio_init();    // 🎓 Mozzi pilote maintenant les DAC (plus besoin du dacWrite de silence)
+    Serial.println("=== LIF2D UI TEST + AUDIO ===");
 }
 
 // 🎓 Debug : envoie sur le port série les valeurs brutes des molettes et
@@ -66,10 +63,17 @@ static void debug_pins() {
     }
 }
 
+// 🎓 Plus aucun delay() : audioHook() doit être appelé le plus souvent possible
+//    pour remplir le tampon audio. Sinon le DAC n'a plus rien à jouer → craquements.
+//    L'affichage (FastLED.show ≈ 8 ms pour 256 LEDs) est limité à 50 images/s.
 void loop() {
+    audioHook();
     input_poll();
     debug_inputs();
     debug_pins();
-    ui_update();
-    delay(5);   // 🎓 ~200 images/s max ; acceptable ici (pas de tâche FreeRTOS critique dans ce test)
+    static uint32_t last_frame = 0;
+    if (millis() - last_frame >= FRAME_MS) {
+        last_frame = millis();
+        ui_update();
+    }
 }
