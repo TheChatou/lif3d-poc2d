@@ -14,15 +14,26 @@ struct Setting {
     int16_t*           value;
     int16_t            min, max;   // K_BAR : bornes ; K_OPT : 0..nb_options-1
     const char* const* labels;     // K_OPT : nom de chaque option
+    uint8_t            group;      // famille de réglages → couleur (0 = couleur de la page)
 };
+
+// 🎓 Familles de la page AUDIO : une couleur par famille pour s'y retrouver
+//    d'un coup d'œil dans une longue liste (cyan = musique, vert = son,
+//    violet = arpège, orange = batterie).
+enum Group : uint8_t { G_PAGE, G_TONE, G_ARP, G_DRUM };
 
 static const char* const SCALES[]  = {"JAPONAISE", "PENTA", "PENTA MIN", "LYDIEN", "MIXOLYDIEN", "PHRYGIEN"};
 static const char* const TONICS[]  = {"C", "C+", "D", "D+", "E", "F", "F+", "G", "G+", "A", "A+", "B"};
 static const char* const OCTAVES[] = {"1", "2", "3", "4", "5"};   // octave de la note la plus grave (3 = La3 par défaut)
 static const char* const TIMBRES[] = {"CRISTAL", "PIANO", "ORGUE", "PAD", "BASSE", "MARIMBA", "LIBRE"};
 static const char* const ONOFF[]   = {"OFF", "ON"};
-static const char* const ARPMODES[] = {"UP", "DOWN", "RANDOM", "PING PONG", "TIERCE", "QUINTE", "ACCORD"};
-static const char* const ARPDIVS[]  = {"X1", "X2", "X3", "X4", "X6", "X8"};
+static const char* const ARPMODES[] = {"UP", "DOWN", "UP DOWN", "DOWN UP", "CONVERGE", "DIVERGE",
+                                       "THUMB", "PINKY", "RANDOM", "ACCORD", "POMPE"};   // même ordre que audio.cpp
+static const char* const CHORDS[]   = {"TOUT", "TIERCE", "QUINTE"};
+static const char* const POMPES[]   = {"G A", "G G A", "G G A A", "G A A"};
+static const char* const ARPOCTS[]  = {"1", "2", "3"};
+static const char* const AGEMODES[] = {"OFF", "VOLUME", "TIMBRE"};
+static const char* const ARPDIVS[]  = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};   // T = triolet
 static const char* const RULES[]   = {"CONWAY", "CORAL", "DENSE", "BUILDER", "SYMETRIC", "HIGHLIFE", "BALANCED"};  // même ordre que GOL_RULES (gol.cpp)
 static const char* const EVOLS[]   = {"1 TEMPS", "2 TEMPS", "4 TEMPS", "MESURE"};
 static const char* const LOOPLEN[] = {"X2", "X4", "X8"};
@@ -39,19 +50,24 @@ static const char* const LEDTESTS[] = {"NORMAL", "NOIR", "FIGE", "SANS DITHER"};
 static int16_t dummy_action = 0;
 
 static const Setting SET_AUDIO[] = {
-    {"BPM", K_BAR, &cfg.bpm, 20, 140, nullptr},      {"GAMME", K_OPT, &cfg.scale, 0, 5, SCALES},
-    {"TONIQUE", K_OPT, &cfg.tonic, 0, 11, TONICS},   {"OCTAVE", K_OPT, &cfg.octave, 0, 4, OCTAVES},
-    {"TIMBRE", K_OPT, &cfg.timbre, 0, 6, TIMBRES},   {"ARPEGE", K_OPT, &cfg.arp, 0, 1, ONOFF},
-    {"MODE ARP", K_OPT, &cfg.arp_mode, 0, 6, ARPMODES}, {"VITESSE ARP", K_OPT, &cfg.arp_div, 0, 5, ARPDIVS},
-    {"GROOVE", K_OPT, &cfg.arp_groove, 0, 1, ONOFF},
-    {"REVERB", K_BAR, &cfg.reverb, 0, 100, nullptr}, {"VOL BOOM", K_BAR, &cfg.boom_vol, 0, 100, nullptr},
-    {"ATTACK", K_BAR, &cfg.attack, 0, 100, nullptr}, {"DECAY", K_BAR, &cfg.decay, 0, 100, nullptr},
+    {"BPM", K_BAR, &cfg.bpm, 20, 140, nullptr},              {"GAMME", K_OPT, &cfg.scale, 0, 5, SCALES},
+    {"TONIQUE", K_OPT, &cfg.tonic, 0, 11, TONICS},           {"OCTAVE", K_OPT, &cfg.octave, 0, 4, OCTAVES},
+    {"TIMBRE", K_OPT, &cfg.timbre, 0, 6, TIMBRES, G_TONE},   {"ATTACK", K_BAR, &cfg.attack, 0, 100, nullptr, G_TONE},
+    {"DECAY", K_BAR, &cfg.decay, 0, 100, nullptr, G_TONE},   {"REVERB", K_BAR, &cfg.reverb, 0, 100, nullptr, G_TONE},
+    {"AGE SON", K_OPT, &cfg.age_mode, 0, 2, AGEMODES, G_TONE},
+    {"ARPEGE", K_OPT, &cfg.arp, 0, 1, ONOFF, G_ARP},         {"STYLE ARP", K_OPT, &cfg.arp_mode, 0, 10, ARPMODES, G_ARP},
+    {"RATE ARP", K_OPT, &cfg.arp_div, 0, 5, ARPDIVS, G_ARP}, {"GATE ARP", K_BAR, &cfg.arp_gate, 10, 100, nullptr, G_ARP},
+    {"SWING ARP", K_BAR, &cfg.arp_swing, 0, 100, nullptr, G_ARP},
+    {"OCTAVES ARP", K_OPT, &cfg.arp_oct, 0, 2, ARPOCTS, G_ARP},
+    {"ACCORD", K_OPT, &cfg.chord, 0, 2, CHORDS, G_ARP},      {"MOTIF POMPE", K_OPT, &cfg.pompe, 0, 3, POMPES, G_ARP},
+    {"VOL BOOM", K_BAR, &cfg.boom_vol, 0, 100, nullptr, G_DRUM},
 };
 static const Setting SET_GOL[] = {
     {"REGLE", K_OPT, &cfg.rule, 0, 6, RULES},          {"EVOLUTION", K_OPT, &cfg.evolution, 0, 3, EVOLS},
     {"LOOP", K_OPT, &cfg.loop_on, 0, 1, ONOFF},        {"DUREE LOOP", K_OPT, &cfg.loop_len, 0, 2, LOOPLEN},
     {"LECTURE", K_OPT, &cfg.loop_mode, 0, 1, LOOPMOD}, {"SYMETRIE", K_OPT, &cfg.symmetry, 0, 3, SYMS},
     {"DENSITE", K_BAR, &cfg.density, 0, 100, nullptr}, {"PALETTE", K_OPT, &cfg.palette, 0, 2, PALS},
+    {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr},
 };
 static const Setting SET_BOOM[] = {
     {"KIT", K_OPT, &cfg.kit, 0, 2, KITS}, {"SWING", K_BAR, &cfg.swing, 0, 100, nullptr},
@@ -67,6 +83,10 @@ static const Setting SET_SYS[] = {
 static int16_t track_vals[8][8];
 static Setting set_track[8];
 
+// Réglages d'un pas de la BOOM (8 pistes × 32 pas × VELO/PROBA)
+static int16_t step_vals[8][32][2];
+static Setting set_step[2];
+
 struct Page { const char* title; const Setting* items; uint8_t count; };
 static Page pages[PAGE_COUNT] = {
     {"AUDIO", SET_AUDIO, sizeof(SET_AUDIO) / sizeof(Setting)},
@@ -74,6 +94,7 @@ static Page pages[PAGE_COUNT] = {
     {"BOOM", SET_BOOM, sizeof(SET_BOOM) / sizeof(Setting)},
     {"SYS", SET_SYS, sizeof(SET_SYS) / sizeof(Setting)},
     {"TRACK", set_track, 8},
+    {"PAS", set_step, 2},
 };
 static uint8_t track_idx = 0;
 
@@ -85,12 +106,21 @@ static CRGB page_color(uint8_t id) {
         case PAGE_SET_AUDIO: return COL_SOUND;
         case PAGE_SET_GOL:   return COL_VISUAL;
         case PAGE_SET_BOOM:  return COL_BOOM;
-        case PAGE_TRACK:     return TRACK_COLORS[track_idx];
+        case PAGE_TRACK: case PAGE_STEP: return TRACK_COLORS[track_idx];
         default:             return COL_SYS;
     }
 }
 
 static uint8_t  page = 0, sel = 0;
+
+static CRGB item_color(const Setting& s) {
+    switch (s.group) {
+        case G_TONE: return CRGB(40, 255, 60);    // vert
+        case G_ARP:  return CRGB(170, 0, 255);    // violet
+        case G_DRUM: return COL_BOOM;
+        default:     return page_color(page);
+    }
+}
 static uint32_t t_sel = 0, t_value = 0;
 static bool     editing = false;   // false = on choisit la ligne, true = on change sa valeur
 static int16_t  backup = 0;        // valeur avant édition (pour annuler)
@@ -101,12 +131,25 @@ static void init_tracks() {
     static bool init = false;
     if (init) return;
     for (auto& tv : track_vals) { tv[0] = 50; tv[1] = 40; tv[2] = 60; tv[3] = 80; tv[4] = 2; tv[6] = 100; }
+    for (auto& t : step_vals) for (auto& s : t) s[SV_VELO] = s[SV_PROBA] = 100;
     init = true;
 }
 
 int16_t track_value(uint8_t track, uint8_t which) {
     init_tracks();
     return track_vals[track][which];
+}
+
+int16_t step_value(uint8_t track, uint8_t step, uint8_t which) {
+    init_tracks();
+    return step_vals[track][step][which];
+}
+
+static void build_step_page(uint8_t t, uint8_t s) {
+    init_tracks();
+    set_step[0] = {"VELOCITE", K_BAR, &step_vals[t][s][SV_VELO], 0, 100, nullptr};
+    set_step[1] = {"PROBA", K_BAR, &step_vals[t][s][SV_PROBA], 0, 100, nullptr};
+    track_idx = t;
 }
 
 static void build_track_page(uint8_t t) {
@@ -121,8 +164,9 @@ static void build_track_page(uint8_t t) {
     track_idx = t;
 }
 
-void page_open(uint8_t id, uint8_t track) {
+void page_open(uint8_t id, uint8_t track, uint8_t step) {
     if (id == PAGE_TRACK) build_track_page(track);
+    if (id == PAGE_STEP) build_step_page(track, step);
     page = id;
     sel = 0;
     t_sel = millis();
@@ -214,7 +258,7 @@ void page_render() {
     int start = constrain((int)sel - VISIBLE_ROWS / 2 + 1, 0, max(0, p.count - VISIBLE_ROWS));
     for (int r = 0; r < VISIBLE_ROWS && start + r < p.count; r++) {
         RowState st = start + r != sel ? ROW_NORMAL : editing ? ROW_EDITING : ROW_POINTED;
-        draw_row(r, p.items[start + r], page_color(page), st);
+        draw_row(r, p.items[start + r], item_color(p.items[start + r]), st);
     }
     const Setting& s = p.items[sel];
     bool show_value = editing && s.kind != K_ACTION;   // en édition : la valeur reste affichée
@@ -224,7 +268,7 @@ void page_render() {
         if (s.kind == K_OPT) txt = s.labels[*s.value];
         else { snprintf(buf, sizeof(buf), "%d", *s.value); txt = buf; }
     }
-    draw_label(FONT_3X5P, txt, LABEL_Y, page_color(page), true, show_value ? t_value : t_sel);
+    draw_label(FONT_3X5P, txt, LABEL_Y, item_color(s), true, show_value ? t_value : t_sel);
 }
 
 // ---------------------------------------------------------------- confirmation

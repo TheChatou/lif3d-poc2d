@@ -36,40 +36,11 @@ void setup() {
     Serial.println("=== LIF2D UI TEST + AUDIO ===");
 }
 
-// 🎓 Debug : envoie sur le port série les valeurs brutes des molettes et
-//    boutons dès qu'elles changent (lisible avec `pio device monitor`).
-static void debug_inputs() {
-    static InputDiag last = {0, 0, false, false, false};
-    InputDiag d = input_diag();
-    if (d.raw_a != last.raw_a || d.raw_b != last.raw_b || d.sw_a != last.sw_a ||
-        d.sw_b != last.sw_b || d.sw_play != last.sw_play) {
-        Serial.printf("rawA=%ld rawB=%ld swA=%d swB=%d play=%d\n",
-                      (long)d.raw_a, (long)d.raw_b, d.sw_a, d.sw_b, d.sw_play);
-        last = d;
-    }
-}
-
-// 🎓 Debug n°2 : niveau électrique de chaque broche d'encodeur (1 = HIGH, 0 = LOW).
-//    Une broche qui ne change jamais en tournant = contact bloqué ou débranché.
-static void debug_pins() {
-    static const uint8_t PINS[4] = {ENC_A_ROTA, ENC_A_ROTB, ENC_B_ROTA, ENC_B_ROTB};
-    static int last = -1;
-    int v = 0;
-    for (int i = 0; i < 4; i++) v |= digitalRead(PINS[i]) << i;
-    if (v != last) {
-        Serial.printf("pins A.rotA(22)=%d A.rotB(23)=%d B.rotA(32)=%d B.rotB(33)=%d\n",
-                      v & 1, (v >> 1) & 1, (v >> 2) & 1, (v >> 3) & 1);
-        last = v;
-    }
-}
-
 // 🎓 loop() tourne sur le cœur 1 : interface + LEDs seulement. Le son vit
 //    sur le cœur 0 (audio.cpp), donc FastLED.show() (≈ 8 ms) ne peut plus
 //    l'affamer. L'affichage reste limité à 50 images/s.
 void loop() {
     input_poll();
-    debug_inputs();
-    debug_pins();
     static uint32_t last_frame = 0;
     if (millis() - last_frame >= FRAME_MS) {
         last_frame = millis();

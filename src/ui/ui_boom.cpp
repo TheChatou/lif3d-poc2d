@@ -32,10 +32,10 @@ void boom_handle(const Event& ev) {
                 overlay_show("VOL", cfg.volume, 100);
             } else boom_t = (boom_t + ev.delta + 8 * 8) % 8;
             break;
-        case EV_CLICK_A: pattern[boom_t] ^= (1UL << boom_x); break;   // 🎓 XOR : inverse le bit du pas
-        case EV_CLICK_B: nav_open(SCR_PAGE, PAGE_TRACK); page_open(PAGE_TRACK, boom_t); break;
+        case EV_CLICK_A: case EV_CLICK_B: pattern[boom_t] ^= (1UL << boom_x); break;   // 🎓 XOR : inverse le bit du pas
+        case EV_LONG_A: nav_open(SCR_PAGE, PAGE_TRACK); page_open(PAGE_TRACK, boom_t); break;          // la piste
+        case EV_LONG_B: nav_open(SCR_PAGE, PAGE_STEP); page_open(PAGE_STEP, boom_t, boom_x); break;    // la case
         case EV_CLICK_AB: nav_open(SCR_REC, BANK_BOOM); break;
-        case EV_LONG_A: case EV_LONG_B: nav_back(); break;
         default: break;
     }
 }
@@ -47,7 +47,7 @@ void boom_render() {
             int x = s % 16, y = t + (s < 16 ? 0 : 8);   // pas 1–16 en haut, 17–32 en bas
             bool on = pattern[t] & (1UL << s);
             if (s == step) disp_set(x, y, on ? COL_ACCENT : dim(COL_SYS));
-            else if (on) disp_set(x, y, TRACK_COLORS[t]);
+            else if (on) { CRGB c = TRACK_COLORS[t]; c.nscale8(60 + step_value(t, s, SV_VELO) * 195 / 100); disp_set(x, y, c); }   // vélocité = luminosité
         }
     }
     int cx = boom_x % 16, cy = boom_t + (boom_x < 16 ? 0 : 8);

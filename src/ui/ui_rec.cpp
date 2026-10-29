@@ -1,14 +1,15 @@
 #include "ui_internal.h"
 
 // ---------------------------------------------------------------- REC (presets)
-// 🎓 Les presets vivent en RAM pour l'instant : ils disparaissent à
-//    l'extinction. La sauvegarde en flash (NVS) viendra à l'étape 4.
+// 🎓 Les presets vivent en RAM et sont recopiés en flash (NVS, ui_storage.cpp)
+//    à chaque sauvegarde / suppression : ils survivent à l'extinction.
 #define SLOTS     16
 #define NAME_MAX  12
 #define GRID_N   (DISP_W * DISP_H)
 
 struct Slot { bool used; char name[NAME_MAX + 1]; };
-struct AudioPreset { int16_t bpm, scale, tonic, octave, timbre, arp, reverb, attack, decay, arp_mode, arp_div, arp_groove; };
+struct AudioPreset { int16_t bpm, scale, tonic, octave, timbre, arp, reverb, attack, decay,
+                     arp_mode, arp_div, arp_swing, arp_gate, chord, pompe; };
 
 static Slot        slots[3][SLOTS];
 static uint8_t     gol_grids[SLOTS][GRID_N];   // 16 × 256 octets = 4 Ko
@@ -58,6 +59,23 @@ static void preset(uint8_t k, const char* name) {
 
 #define N(a) (int)(sizeof(a) / sizeof(a[0]))
 
+// 🎓 Presets AUDIO sauvés avant la refonte "Ableton" de l'arpège (clé "audio") :
+//    on les convertit au nouveau format au lieu de les perdre.
+//    Anciens modes : UP DOWN RANDOM PING TIERCE QUINTE ACCORD CONVERGE DIVERGE PEDALE
+static void load_legacy_audio() {
+    struct Old { int16_t bpm, scale, tonic, octave, timbre, arp, reverb, attack, decay, arp_mode, arp_div, arp_groove; };
+    static const int16_t STYLE[10] = {0, 1, 8, 2, 9, 9, 9, 4, 5, 6};
+    static const int16_t CHORD[10] = {0, 0, 0, 0, 1, 2, 0, 0, 0, 0};
+    Old old[SLOTS];
+    if (!nvs_load("audio", old, sizeof(old))) return;
+    for (int i = 0; i < SLOTS; i++) {
+        const Old& o = old[i];
+        int m = constrain(o.arp_mode, 0, 9);
+        audio_presets[i] = {o.bpm, o.scale, o.tonic, o.octave, o.timbre, o.arp, o.reverb, o.attack, o.decay,
+                            STYLE[m], o.arp_div, (int16_t)(o.arp_groove ? 70 : 0), 100, CHORD[m], 0};
+    }
+}
+
 static void init_presets() {
     static bool done = false;
     if (done) return;
@@ -79,6 +97,21 @@ static void init_presets() {
     stamp(gol_grids[6], RPENTO, N(RPENTO), 7, 7);       preset(6, "R-PENTO");
     stamp(gol_grids[7], TOAD, N(TOAD), 6, 4);
     stamp(gol_grids[7], BEACON, N(BEACON), 6, 9);       preset(7, "TOAD BEACON");
+    // Une sauvegarde en flash remplace les formes d'usine (elle les contient déjà)
+    if (nvs_load("slots", slots, sizeof(slots))) {
+        nvs_load("golg", gol_grids, sizeof(gol_grids));
+        nvs_load("golr", gol_rules, sizeof(gol_rules));
+        nvs_load("boom", boom_patterns, sizeof(boom_patterns));
+        if (!nvs_load("audio2", audio_presets, sizeof(audio_presets))) load_legacy_audio();
+    }
+}
+
+static void persist() {
+    nvs_save("slots", slots, sizeof(slots));
+    nvs_save("golg", gol_grids, sizeof(gol_grids));
+    nvs_save("golr", gol_rules, sizeof(gol_rules));
+    nvs_save("boom", boom_patterns, sizeof(boom_patterns));
+    nvs_save("audio2", audio_presets, sizeof(audio_presets));
 }
 
 void rec_open(uint8_t b) { init_presets(); bank = b; menu = -1; }
@@ -96,8 +129,9 @@ static void save_slot(const char* name) {
         default:
             audio_presets[slot] = {cfg.bpm, cfg.scale, cfg.tonic, cfg.octave, cfg.timbre,
                                    cfg.arp, cfg.reverb, cfg.attack, cfg.decay,
-                                   cfg.arp_mode, cfg.arp_div, cfg.arp_groove};
+                                   cfg.arp_mode, cfg.arp_div, cfg.arp_swing, cfg.arp_gate, cfg.chord, cfg.pompe};
     }
+    persist();
     toast("SAUVE");
 }
 
@@ -106,9 +140,8 @@ static void load_slot() {
     const Slot& s = slots[bank][slot];
     switch (bank) {
         case BANK_GOL:
-            memcpy(live_grid(), gol_grids[slot], GRID_N);
+            live_grid_edit([](uint8_t* g) { memcpy(g, gol_grids[slot], GRID_N); });
             cfg.rule = gol_rules[slot];
-            live_grid_changed();
             break;
         case BANK_BOOM: memcpy(boom_pattern(), boom_patterns[slot], sizeof(boom_patterns[0])); break;
         default: {
@@ -116,7 +149,8 @@ static void load_slot() {
             cfg.bpm = a.bpm; cfg.scale = a.scale; cfg.tonic = a.tonic; cfg.octave = a.octave;
             cfg.timbre = a.timbre; cfg.arp = a.arp; cfg.reverb = a.reverb;
             cfg.attack = a.attack; cfg.decay = a.decay;
-            cfg.arp_mode = a.arp_mode; cfg.arp_div = a.arp_div; cfg.arp_groove = a.arp_groove;
+            cfg.arp_mode = a.arp_mode; cfg.arp_div = a.arp_div; cfg.arp_swing = a.arp_swing;
+            cfg.arp_gate = a.arp_gate; cfg.chord = a.chord; cfg.pompe = a.pompe;
         }
     }
     cfg.playing = true;
@@ -124,7 +158,7 @@ static void load_slot() {
     nav_open(bank == BANK_BOOM ? SCR_BOOM : SCR_GOL);
 }
 
-static void delete_slot() { slots[bank][slot].used = false; toast("SUPPRIME"); }
+static void delete_slot() { slots[bank][slot].used = false; persist(); toast("SUPPRIME"); }
 
 static char default_name[NAME_MAX + 1];
 

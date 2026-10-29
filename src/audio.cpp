@@ -70,16 +70,30 @@ static const Timbre TIMBRES[] = {
 static Osc     v1[VOICES], v2[VOICES];
 static Env     venv[VOICES];
 static uint8_t next_voice = 0;
-static uint16_t w1 = 240, w2 = 16;
+static uint16_t w2 = 16;                 // dosage de l'harmonique du timbre (/256)
 static float   ratio = 2.0f;
+static uint8_t colAge[GRID_ROWS];        // âge des cellules de la colonne jouée (0 = morte)
+static uint8_t vgain[VOICES] = {255, 255, 255};   // volume propre à chaque voix (âge → VOLUME)
+static uint16_t vw2[VOICES] = {16, 16, 16};       // harmonique propre à chaque voix (âge → TIMBRE)
+static uint16_t vgate[VOICES] = {};                // ticks restants avant de couper la note (0 = résonne)
+static uint16_t gate_ticks = 0;                    // durée d'une note selon le GATE (0 = 100 %)
+enum { AGE_OFF, AGE_VOLUME, AGE_TIMBRE };
 
-static void trigger_note(uint8_t row) {
+// semis = transposition en demi-tons (octaves de l'arpège)
+static void trigger_note(uint8_t row, uint8_t semis = 0) {
     uint8_t v = next_voice;
     next_voice = (next_voice + 1) % VOICES;
-    float f = mtof((float)notes[row]);
+    // 🎓 Maturité 64..255 : une cellule née joue à 25 %, une cellule de
+    //    age_max générations (ou plus) à 100 % — comme dans le simulateur.
+    uint8_t amax = max<uint8_t>(1, P.age_max), a = constrain(colAge[row], 1, amax);
+    uint8_t m = amax > 1 ? 64 + 191 * (a - 1) / (amax - 1) : 255;
+    vgain[v] = P.age_mode == AGE_VOLUME ? m : 255;
+    vw2[v]   = P.age_mode == AGE_TIMBRE ? min(230, (w2 + 48) * m / 192) : w2;   // jeune = son pur, mûre = brillant
+    float f = mtof((float)min(127, notes[row] + semis));
     v1[v].setFreq(f);
     v2[v].setFreq(f * ratio);
     venv[v].noteOn();
+    vgate[v] = gate_ticks;
 }
 
 // ============================================================================
@@ -110,15 +124,15 @@ static inline int8_t sat8(int16_t x) { return x > 127 ? 127 : (x < -128 ? -128 :
 
 static inline int8_t comb_filter(int8_t* buf, uint16_t len, uint16_t& idx, int8_t input) {
     int8_t delayed = buf[idx];
-    buf[idx] = sat8(input + (((int16_t)delayed * COMB_FEEDBACK) >> 8));
+    buf[idx] = sat8(input + (((int16_t)delayed * COMB_FEEDBACK) / 256));
     idx = (idx + 1 >= len) ? 0 : idx + 1;
     return delayed;
 }
 
 static inline int8_t allpass_filter(int8_t input) {
     int8_t delayed = allpass_buf[allpass_idx];
-    int8_t out = sat8(delayed - (((int16_t)input * ALLPASS_GAIN) >> 8));
-    allpass_buf[allpass_idx] = sat8(input + (((int16_t)delayed * ALLPASS_GAIN) >> 8));
+    int8_t out = sat8(delayed - (((int16_t)input * ALLPASS_GAIN) / 256));
+    allpass_buf[allpass_idx] = sat8(input + (((int16_t)delayed * ALLPASS_GAIN) / 256));
     allpass_idx = (allpass_idx + 1 >= ALLPASS_LEN) ? 0 : allpass_idx + 1;
     return out;
 }
@@ -163,12 +177,13 @@ static void fire_step(uint8_t step) {
         const DrumTrack& tr = P.track[t];
         if (!(P.pattern[t] & (1UL << step)) || tr.mute) continue;
         if (random(100) >= tr.proba) continue;          // PROBA : chance que le coup sonne
+        if (random(100) >= P.step_proba[t][step]) continue;   // … et celle de CE pas
         float pf = (50 + tr.pitch) / 100.0f;            // PITCH : 0,5× → 1,5×
         float df = (10 + tr.decay) / 50.0f;             // DECAY : 0,2× → 2,2×
         float tf = 0.5f + tr.tone / 120.0f;             // TONE  : plus sombre ↔ plus brillant
         // 🎓 Gain réglé pour qu'aux valeurs par défaut (80 × 60) le coup sonne à ~50 %
         //    — laisse de la marge quand kick + caisse + charleston tombent ensemble
-        uint8_t g = min<uint32_t>(255, (uint32_t)tr.volume * P.drum_volume * 255 / 9600);
+        uint8_t g = min<uint32_t>(255, (uint32_t)tr.volume * P.drum_volume * 255 / 9600) * P.step_velo[t][step] / 100;
         switch (t) {
             case TR_KICK:
                 kickGlide = {pf * (45 + 105 * tr.tone / 60.0f), 45 * pf, 0, 12};
@@ -218,8 +233,11 @@ static void fire_step(uint8_t step) {
 //    Tout est compté en ticks de contrôle (CONTROL_RATE par seconde) :
 //    au tick 0 d'une colonne on passe au temps suivant, puis on déclenche
 //    batterie et arpège aux bons ticks.
-static uint8_t          snap[2][GRID_COLS * GRID_ROWS];
-static volatile uint8_t snap_idx = 0;
+// 🎓 Copie de la grille lue par le séquenceur. Écrite par les 2 cœurs (temps
+//    GoL sur le cœur 0, dessin/preset sur le cœur 1) : un spinlock garantit
+//    qu'on ne lit jamais une grille à moitié recopiée.
+static uint8_t      snap[GRID_COLS * GRID_ROWS];
+static portMUX_TYPE snap_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint8_t cur_col = GRID_COLS - 1;   // le 1er temps atterrit sur la colonne 0
 static uint8_t  beat_in_loop = 0;                  // 0..7 : position dans les 32 pas de la BOOM
 static uint16_t ctrl_ticks = 0, s16_ticks = 32, col_ticks = 128, swing_ticks = 0;
@@ -227,64 +245,119 @@ static GolStepCallback golStepCb = nullptr;
 static volatile bool paused = false;
 
 // ============================================================================
-// ARPÉGIATEUR — mêmes modes que le simulateur web (engine.js)
+// ARPÉGIATEUR — réglages calqués sur celui d'Ableton
 // ============================================================================
 // 🎓 Un arpège = les notes d'un accord jouées UNE PAR UNE au lieu d'ensemble.
-//    Ici "l'accord" = les cellules vivantes de la colonne en cours. Le MODE
-//    choisit l'ordre, la VITESSE combien de notes par temps, le GROOVE
-//    retarde une note sur deux (effet "swing", balancé).
-enum { ARP_UP, ARP_DOWN, ARP_RAND, ARP_PING, ARP_3CE, ARP_5TE, ARP_CHORD };
-static const uint8_t ARP_DIV[] = {1, 2, 3, 4, 6, 8};   // notes par temps (×3, ×6 = triolets)
-#define GROOVE_PCT 35                                  // retard des notes impaires (% d'une sous-division)
+//    Ici "l'accord" = les cellules vivantes de la colonne en cours. Le STYLE
+//    choisit l'ordre, le RATE combien de notes par temps, le SWING retarde
+//    une note sur deux (balancé), le GATE raccourcit chaque note (piqué).
+enum { ARP_UP, ARP_DOWN, ARP_UPDOWN, ARP_DOWNUP, ARP_CONV, ARP_OUT, ARP_THUMB,
+       ARP_PINKY, ARP_RAND, ARP_CHORD, ARP_POMPE };
+enum { CHORD_ALL, CHORD_3CE, CHORD_5TE };
+static const uint8_t ARP_DIV[] = {1, 2, 3, 4, 6, 8};   // notes par temps : 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32
+// 🎓 Motifs POMPE : G = groupe grave (la basse), A = groupe aigu (l'accord)
+static const char* const POMPE_PATTERNS[] = {"GA", "GGA", "GGAA", "GAA"};
 
-static uint8_t  seq[GRID_ROWS];   // rangées Y à jouer, dans l'ordre du mode
+static uint8_t  seq[GRID_ROWS * 2];   // rangées Y à jouer, dans l'ordre du style (THUMB/PINKY doublent la liste)
 static uint8_t  seqLen = 0;
 static uint16_t arp_tick = 0;     // compteur continu d'une colonne à l'autre (Up/Ping ne repartent pas à 0)
 
-static bool chord_mode() { return !P.arp || P.arp_mode >= ARP_3CE; }
+static bool chord_mode() { return !P.arp || P.arp_mode == ARP_CHORD; }
+static bool poly_mode()  { return chord_mode() || P.arp_mode == ARP_POMPE; }   // plusieurs notes à la fois
+
+static void reverse(uint8_t* s, uint8_t n) {
+    for (uint8_t i = 0; i < n / 2; i++) { uint8_t t = s[i]; s[i] = s[n - 1 - i]; s[n - 1 - i] = t; }
+}
+
+static void shuffle(uint8_t* s, uint8_t n) {
+    // 🎓 Mélange de Fisher-Yates : chaque ordre a la même chance de sortir.
+    for (int i = n - 1; i > 0; i--) { uint8_t j = random(i + 1), t = s[i]; s[i] = s[j]; s[j] = t; }
+}
+
+// 🎓 Note de référence = la plus grave allumée, + SA tierce (ou quinte) si
+//    elle est allumée aussi dans la colonne. Sinon elle joue seule.
+static void keep_interval(uint8_t which) {
+    static const int8_t IV[2][3] = {{4, 3, -1}, {7, 6, 8}};
+    uint8_t ref = seq[0];
+    for (uint8_t k = 0; k < 3; k++) {
+        int8_t iv = IV[which][k];
+        if (iv < 0) break;
+        for (uint8_t i = 1; i < seqLen; i++)
+            if ((notes[seq[i]] - notes[ref]) % 12 == iv) { seq[1] = seq[i]; seqLen = 2; return; }
+    }
+    seqLen = 1;
+}
 
 // 🎓 Rangée 15 = la plus grave : "UP" (grave → aigu) lit donc les rangées
 //    de bas en haut.
 static void build_seq(uint8_t col) {
-    const uint8_t* g = snap[snap_idx];
     seqLen = 0;
-    for (int y = GRID_ROWS - 1; y >= 0; y--) if (g[y * GRID_COLS + col]) seq[seqLen++] = y;
+    portENTER_CRITICAL(&snap_mux);
+    for (int y = GRID_ROWS - 1; y >= 0; y--) {
+        colAge[y] = snap[y * GRID_COLS + col];
+        if (colAge[y]) seq[seqLen++] = y;
+    }
+    portEXIT_CRITICAL(&snap_mux);
     if (!seqLen) return;
     uint8_t mode = P.arp ? P.arp_mode : ARP_CHORD;
-    if (mode == ARP_DOWN) {
-        for (uint8_t i = 0; i < seqLen / 2; i++) { uint8_t t = seq[i]; seq[i] = seq[seqLen - 1 - i]; seq[seqLen - 1 - i] = t; }
-    } else if (mode == ARP_RAND || mode == ARP_CHORD) {
-        // 🎓 Mélange de Fisher-Yates : chaque ordre a la même chance de sortir.
-        //    En ACCORD, ça choisit au hasard QUELLES notes jouent quand il y en
-        //    a plus que de voix.
-        for (int i = seqLen - 1; i > 0; i--) { uint8_t j = random(i + 1), t = seq[i]; seq[i] = seq[j]; seq[j] = t; }
-    } else if (mode == ARP_3CE || mode == ARP_5TE) {
-        // 🎓 Note de référence = la plus grave allumée, + SA tierce (ou quinte)
-        //    si elle est allumée aussi dans la colonne. Sinon elle joue seule.
-        static const int8_t IV[2][3] = {{4, 3, -1}, {7, 6, 8}};
-        uint8_t ref = seq[0];
-        for (uint8_t k = 0; k < 3 && seqLen > 1; k++) {
-            int8_t iv = IV[mode - ARP_3CE][k];
-            if (iv < 0) break;
-            for (uint8_t i = 1; i < seqLen; i++) {
-                if ((notes[seq[i]] - notes[ref]) % 12 == iv) { seq[1] = seq[i]; seqLen = 2; goto done; }
-            }
-        }
-        seqLen = 1;
-        done:;
+    uint8_t up[GRID_ROWS], n = seqLen;
+    memcpy(up, seq, n);
+    if (mode == ARP_DOWN || mode == ARP_DOWNUP) {
+        reverse(seq, seqLen);
+    } else if (mode == ARP_RAND) {
+        shuffle(seq, seqLen);
+    } else if (mode == ARP_CHORD) {
+        // 🎓 TOUT : au hasard QUELLES notes jouent quand il y en a plus que de voix
+        if (P.chord == CHORD_ALL) shuffle(seq, seqLen);
+        else if (seqLen > 1) keep_interval(P.chord - CHORD_3CE);
+    } else if (mode == ARP_CONV || mode == ARP_OUT) {
+        // 🎓 CONVERGE : grave, aigu, 2e grave, 2e aigu… les notes se rejoignent
+        //    au milieu. DIVERGE = la même suite à l'envers : du milieu vers les bords.
+        uint8_t lo = 0, hi = n - 1;
+        for (uint8_t i = 0; i < n; i++) seq[i] = (i & 1) ? up[hi--] : up[lo++];
+        if (mode == ARP_OUT) reverse(seq, seqLen);
+    } else if (mode == ARP_THUMB && n > 1) {
+        // 🎓 THUMB (pouce) : la note la plus grave revient entre chacune des
+        //    autres (grave, A, grave, B…) — une basse obstinée façon Bach.
+        seqLen = 0;
+        for (uint8_t i = 1; i < n; i++) { seq[seqLen++] = up[0]; seq[seqLen++] = up[i]; }
+    } else if (mode == ARP_PINKY && n > 1) {
+        // 🎓 PINKY (auriculaire) : pareil avec la plus aiguë (A, aiguë, B, aiguë…)
+        seqLen = 0;
+        for (uint8_t i = 0; i < n - 1; i++) { seq[seqLen++] = up[i]; seq[seqLen++] = up[n - 1]; }
     }
 }
 
-// Une sous-division d'arpège : une note (UP/DOWN/RAND/PING) ou tout l'accord
+// 🎓 POMPE : le tiers grave des notes = la basse, le reste = l'accord.
+//    Le motif dit lequel des deux groupes frappe à chaque sous-division.
+static void pompe_fire() {
+    const char* m = POMPE_PATTERNS[min<uint8_t>(P.pompe, 3)];
+    bool high = m[arp_tick % strlen(m)] == 'A';
+    uint8_t split = max(1, seqLen / 3);
+    if (high && split < seqLen) {
+        for (uint8_t i = max<uint8_t>(split, seqLen - VOICES); i < seqLen; i++) trigger_note(seq[i]);
+    } else {
+        for (uint8_t i = 0; i < min<uint8_t>(split, VOICES); i++) trigger_note(seq[i]);
+    }
+}
+
+// Une sous-division d'arpège : une note, un groupe (POMPE) ou tout l'accord
 static void arp_fire() {
     if (!seqLen) return;
     if (chord_mode()) {
         for (uint8_t i = 0; i < min<uint8_t>(seqLen, VOICES); i++) trigger_note(seq[i]);
-    } else if (P.arp_mode == ARP_PING && seqLen > 1) {
-        uint16_t cycle = (seqLen - 1) * 2, pos = arp_tick % cycle;   // 0 1 2 1 0 1 2…
-        trigger_note(seq[pos < seqLen ? pos : cycle - pos]);
+    } else if (P.arp_mode == ARP_POMPE) {
+        pompe_fire();
     } else {
-        trigger_note(seq[arp_tick % seqLen]);
+        // 🎓 OCTAVES ARP : la suite est rejouée 1, 2 ou 3 fois, une octave plus haut
+        //    à chaque tour → idx parcourt seqLen × octaves positions.
+        uint16_t total = seqLen * constrain(P.arp_oct, 1, 3), idx = arp_tick % total;
+        bool ping = P.arp_mode == ARP_UPDOWN || P.arp_mode == ARP_DOWNUP;
+        if (ping && total > 1) {
+            uint16_t cycle = (total - 1) * 2, pos = arp_tick % cycle;   // 0 1 2 1 0 1 2…
+            idx = pos < total ? pos : cycle - pos;
+        }
+        trigger_note(seq[idx % seqLen], 12 * (idx / seqLen));
     }
     arp_tick++;
 }
@@ -317,7 +390,6 @@ static void apply_params(const AudioParams& p) {
     const Timbre& t = TIMBRES[min<uint8_t>(P.timbre, 6)];
     ratio = t.ratio;
     w2 = t.w2;
-    w1 = 256 - t.w2;
     build_notes(t.shift);
     if (P.timbre != last_timbre) {
         for (int v = 0; v < VOICES; v++) { v1[v].setTable(t.t1); v2[v].setTable(t.t2); }
@@ -326,7 +398,7 @@ static void apply_params(const AudioParams& p) {
     // 🎓 On ne retouche l'enveloppe que si elle a changé (appelé 50×/s par l'UI)
     uint16_t att = max<uint8_t>(2, P.attack) * t.att_mul;
     uint16_t dec = (50 + P.decay * 8) * t.dec_mul / 4;
-    uint8_t  lvl = chord_mode() ? 80 : 115;   // en accord, 3 notes ensemble → chacune moins fort
+    uint8_t  lvl = poly_mode() ? 80 : 115;    // en accord, 3 notes ensemble → chacune moins fort
     if (att != last_att || dec != last_dec || lvl != last_lvl) {
         for (int v = 0; v < VOICES; v++) { venv[v].setADLevels(lvl, 0); venv[v].setTimes(att, dec, 0, 50); }
         last_att = att; last_dec = dec; last_lvl = lvl;
@@ -381,9 +453,9 @@ void audio_init() {
 }
 
 void audio_grid_update(const uint8_t* grid) {
-    uint8_t w = 1 - snap_idx;
-    memcpy(snap[w], grid, GRID_COLS * GRID_ROWS);
-    snap_idx = w;
+    portENTER_CRITICAL(&snap_mux);
+    memcpy(snap, grid, GRID_COLS * GRID_ROWS);
+    portEXIT_CRITICAL(&snap_mux);
 }
 
 void audio_set_gol_step_callback(GolStepCallback cb) { golStepCb = cb; }
@@ -412,7 +484,10 @@ void updateControl() {
     }
     // 🎓 update() fait AVANCER chaque enveloppe d'une phase à l'autre
     //    (attaque → déclin → silence) ; sans lui, elle resterait bloquée.
-    for (int v = 0; v < VOICES; v++) venv[v].update();
+    for (int v = 0; v < VOICES; v++) {
+        if (vgate[v] && --vgate[v] == 0) venv[v].noteOff();   // 🎓 fin du GATE → la note s'éteint (release 50 ms)
+        venv[v].update();
+    }
     kickEnv.update(); tomEnv.update(); snareEnv.update(); hatEnv.update(); clapEnv.update();
     glide(kickOsc, kickGlide);
     glide(tomOsc, tomGlide);
@@ -426,10 +501,12 @@ void updateControl() {
         if (ctrl_ticks == at) fire_step((beat_in_loop * 4 + sub) % 32);
     }
     // 🎓 Le temps est coupé en `div` parts égales ; ARPEGE OFF = un seul
-    //    accord par temps. GROOVE : les sous-divisions impaires sont retardées.
+    //    accord par temps. SWING : les sous-divisions impaires sont retardées
+    //    (au max d'une demi-sous-division). GATE : durée d'une note, en ticks.
     uint8_t  div = P.arp ? ARP_DIV[min<uint8_t>(P.arp_div, 5)] : 1;
     uint16_t sub = col_ticks / div;
-    uint16_t groove = P.arp_groove ? sub * GROOVE_PCT / 100 : 0;
+    uint16_t groove = sub * min<uint8_t>(P.arp_swing, 100) / 200;
+    gate_ticks = P.arp_gate >= 100 ? 0 : max(1, sub * P.arp_gate / 100);
     for (uint8_t k = 0; k < div; k++)
         if (ctrl_ticks == k * col_ticks / div + ((k & 1) ? groove : 0)) arp_fire();
     if (++ctrl_ticks >= col_ticks) ctrl_ticks = 0;
@@ -450,11 +527,10 @@ int updateAudio() {
     if (!paused) {
         for (int v = 0; v < VOICES; v++) {
             if (!venv[v].playing()) continue;
-            int32_t m = ((int32_t)v1[v].next() * w1 + (int32_t)v2[v].next() * w2) >> 8;
-            dry += (m * venv[v].next()) >> 8;
+            int32_t m = ((int32_t)v1[v].next() * (256 - vw2[v]) + (int32_t)v2[v].next() * vw2[v]) >> 8;
+            dry += (((m * venv[v].next()) >> 8) * vgain[v]) >> 8;
         }
     }
-    dry = constrain(dry, -127, 127);
 
     // 🎓 La reverb tourne TOUJOURS, même sans note : sinon sa queue de
     //    résonance se couperait net au lieu de s'éteindre doucement.

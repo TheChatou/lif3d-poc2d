@@ -11,6 +11,7 @@ enum EvType : uint8_t {
     EV_CLICK_A, EV_CLICK_B,     // clic court (au relâchement)
     EV_LONG_A, EV_LONG_B,       // appui long (≥ LONG_PRESS_MS, déclenché pendant l'appui)
     EV_CLICK_AB,                // les 2 molettes cliquées ensemble
+    EV_LONG_AB,                 // les 2 molettes maintenues ensemble (= MENU)
     EV_CLICK_PLAY, EV_LONG_PLAY // bouton ▶
 };
 

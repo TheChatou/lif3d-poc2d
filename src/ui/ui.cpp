@@ -49,12 +49,14 @@ uint32_t screen_age_ms() { return millis() - t_enter; }
 
 // 🎓 Sortie de secours : appui long ▶ = retour direct au GOL en cours, d'où
 //    qu'on soit. On vide la pile de navigation (comme un bouton "home").
-static void go_live() {
+static void go_to(Screen s) {
     depth = 0;
     cfg.led_test = LT_NORMAL;
     disp_test_mode(LT_NORMAL);
-    enter(SCR_GOL, 0);
+    enter(s, 0);
 }
+static void go_live() { go_to(SCR_GOL); }
+static void go_menu() { go_to(SCR_HUB); }
 
 void toast(const char* msg, uint16_t ms) {
     toast_msg = msg;
@@ -85,6 +87,7 @@ struct HubItem { const char* label; Screen target; uint8_t arg; bool submenu; };
 static const HubItem HUB_TOP[] = {
     {"GOL", SCR_GOL, 0, false}, {"DRAW", SCR_DRAW, 0, false}, {"BOOM", SCR_BOOM, 0, false},
     {"REC", SCR_HUB, 1, true},  {"SET", SCR_HUB, 2, true},    {"SYS", SCR_PAGE, PAGE_SYS, false},
+    {"EXTRA", SCR_HUB, 3, true},
 };
 static const HubItem HUB_REC[] = {
     {"GOL", SCR_REC, BANK_GOL, false}, {"BOOM", SCR_REC, BANK_BOOM, false}, {"AUDIO", SCR_REC, BANK_AUDIO, false},
@@ -93,19 +96,22 @@ static const HubItem HUB_SET[] = {
     {"GOL", SCR_PAGE, PAGE_SET_GOL, false}, {"BOOM", SCR_PAGE, PAGE_SET_BOOM, false},
     {"AUDIO", SCR_PAGE, PAGE_SET_AUDIO, false},
 };
+static const HubItem HUB_EXTRA[] = { {"TRIP", SCR_TRIP, 0, false}, {"BRICK", SCR_BRICK, 0, false}, {"PONG", SCR_PONG, 0, false} };
 static const HubItem HUB_FLAT_ITEMS[] = {
     {"GOL", SCR_GOL, 0, false}, {"DRAW", SCR_DRAW, 0, false}, {"BOOM", SCR_BOOM, 0, false},
     {"REC GOL", SCR_REC, BANK_GOL, false}, {"REC BOOM", SCR_REC, BANK_BOOM, false},
     {"REC AUDIO", SCR_REC, BANK_AUDIO, false}, {"SET GOL", SCR_PAGE, PAGE_SET_GOL, false},
     {"SET BOOM", SCR_PAGE, PAGE_SET_BOOM, false}, {"SET AUDIO", SCR_PAGE, PAGE_SET_AUDIO, false},
-    {"SYS", SCR_PAGE, PAGE_SYS, false},
+    {"SYS", SCR_PAGE, PAGE_SYS, false}, {"TRIP", SCR_TRIP, 0, false}, {"BRICK", SCR_BRICK, 0, false},
+    {"PONG", SCR_PONG, 0, false},
 };
-static int8_t hub_focus[3] = {0, 0, 0};   // mémoire de position par niveau
+static int8_t hub_focus[4] = {0, 0, 0, 0};   // mémoire de position par niveau
 
 static const HubItem* hub_items(uint8_t level, uint8_t& n) {
     if (cfg.hub_style == HUB_FLAT) { n = sizeof(HUB_FLAT_ITEMS) / sizeof(HubItem); return HUB_FLAT_ITEMS; }
     if (level == 1) { n = 3; return HUB_REC; }
     if (level == 2) { n = 3; return HUB_SET; }
+    if (level == 3) { n = 3; return HUB_EXTRA; }
     n = sizeof(HUB_TOP) / sizeof(HubItem);
     return HUB_TOP;
 }
@@ -117,13 +123,13 @@ static void hub_handle(const Event& ev) {
     if (ev.type == EV_TURN_A || ev.type == EV_TURN_B) {
         f = constrain(f + ev.delta, 0, n - 1);   // droite = descendre ; bloque aux extrémités
         t_enter = millis();                      // relance le défilement du libellé
-    } else if (ev.type == EV_CLICK_A || ev.type == EV_CLICK_B) {
+    } else if (ev.type == EV_CLICK_A || ev.type == EV_LONG_A) {   // gauche = niveau supérieur
+        if (depth > 0) nav_back();
+        else nav_open(SCR_GOL);                  // hub racine : retour au live
+    } else if (ev.type == EV_CLICK_B) {                              // droite = entrer
         const HubItem& it = items[f];
         if (it.target == SCR_PAGE) { nav_open(SCR_PAGE, it.arg); page_open(it.arg); }
         else nav_open(it.target, it.arg);
-    } else if (ev.type == EV_LONG_A || ev.type == EV_LONG_B) {
-        if (depth > 0) nav_back();
-        else nav_open(SCR_GOL);                  // hub racine : retour au live
     }
 }
 
@@ -133,7 +139,7 @@ static void hub_render() {
     int f = hub_focus[lvl];
     // 🎓 Le menu sélectionné reste au centre ; aux extrémités la liste "colle"
     int y0 = (f == 0) ? 0 : (f == n - 1) ? DISP_H - 5 : HUB_FOCUS_Y;
-    CRGB base = lvl == 1 ? COL_BOOM : lvl == 2 ? COL_SOUND : COL_SYS;
+    CRGB base = lvl == 1 ? COL_BOOM : lvl == 2 ? COL_SOUND : lvl == 3 ? COL_VISUAL : COL_SYS;
     for (int k = 0; k < n; k++) {
         int y = y0 + (k - f) * LINE_STEP;
         if (y <= -5 || y >= DISP_H) continue;
@@ -158,6 +164,8 @@ static void boot_render(uint32_t age) {
 
 // ---------------------------------------------------------------- dispatcher
 void ui_init() {
+    settings_load();
+    disp_set_brightness(cfg.brightness);
     live_init();
     enter(SCR_BOOT, 0);
 }
@@ -176,6 +184,14 @@ static void handle(const Event& ev) {
         go_live();
         return;
     }
+    // 🎓 Appui long sur les 2 molettes = MENU, de partout. Là où on perdrait
+    //    quelque chose (dessin, partie en cours) on demande d'abord ; pendant
+    //    la question le jeu n'est plus dessiné donc il est en pause.
+    if (ev.type == EV_LONG_AB) {
+        if (current == SCR_DRAW || current == SCR_BRICK || current == SCR_PONG) confirm_open("QUITTER ?", go_menu);
+        else go_menu();
+        return;
+    }
     switch (current) {
         case SCR_HUB:     hub_handle(ev); break;
         case SCR_GOL:     gol_handle(ev); break;
@@ -186,6 +202,9 @@ static void handle(const Event& ev) {
         case SCR_PAGE:    page_handle(ev); break;
         case SCR_CONFIRM: confirm_handle(ev); break;
         case SCR_DIAG:    diag_handle(ev); break;
+        case SCR_TRIP:    trip_handle(ev); break;
+        case SCR_BRICK:   brick_handle(ev); break;
+        case SCR_PONG:    pong_handle(ev); break;
         default: break;
     }
 }
@@ -197,6 +216,7 @@ void ui_update() {
         handle(ev);
     }
     live_tick();
+    settings_tick();
 
     uint32_t age = screen_age_ms();
     uint8_t fade = 255;
@@ -220,6 +240,9 @@ void ui_update() {
             case SCR_PAGE:    page_render(); break;
             case SCR_CONFIRM: confirm_render(); break;
             case SCR_DIAG:    diag_render(); break;
+            case SCR_TRIP:    trip_render(); break;
+            case SCR_BRICK:   brick_render(); break;
+            case SCR_PONG:    pong_render(); break;
         }
     }
     disp_show(fade);

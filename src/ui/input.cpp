@@ -67,6 +67,7 @@ struct Button {
 
 enum { BTN_A, BTN_B, BTN_PLAY };
 static Button btn[3] = {{ENC_A_SWCH}, {ENC_B_SWCH}, {BTN_PLAY_PIN}};
+static bool   combo_long = false;   // EV_LONG_AB déjà envoyé pour ce combo
 
 // ---------------------------------------------------------------- file d'événements
 // 🎓 File circulaire : on écrit à `head`, on lit à `tail`, et les deux
@@ -151,7 +152,10 @@ static void poll_button(int i, uint32_t now) {
     }
     // relâchement
     if (b.in_combo) {
-        if (!btn[1 - i].pressed) push(EV_CLICK_AB);  // le 2e relâché déclenche le combo
+        if (!btn[1 - i].pressed) {                   // le 2e relâché termine le combo
+            if (!combo_long) push(EV_CLICK_AB);
+            combo_long = false;
+        }
         return;
     }
     if (!b.long_fired && !b.turned) {
@@ -162,6 +166,11 @@ static void poll_button(int i, uint32_t now) {
 void input_poll() {
     uint32_t now = millis();
     for (int i = 0; i < 3; i++) poll_button(i, now);
+    Button &a = btn[BTN_A], &b = btn[BTN_B];
+    if (a.in_combo && a.pressed && b.pressed && !combo_long && now - max(a.t_press, b.t_press) >= LONG_PRESS_MS) {
+        combo_long = true;
+        push(EV_LONG_AB);
+    }
     poll_encoder(0, BTN_A, INVERT_A);
     poll_encoder(1, BTN_B, INVERT_B);
 }

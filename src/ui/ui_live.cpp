@@ -42,7 +42,33 @@ static uint8_t hist[LOOP_MAX][GRID_N];   // 2 Ko
 static uint8_t hist_len = 0, hist_rule = 0;
 static int8_t  hist_pos = 0, hist_dir = 1;
 
-void live_grid_changed() { hist_len = 0; }   // dessin, graine, preset : la boucle repart de là
+// 🎓 La grille est modifiée par 2 cœurs : le GoL avance sur le cœur 0 (horloge
+//    audio), le dessin / les presets arrivent du cœur 1. Sans verrou, une
+//    génération calculée PENDANT un clic de dessin l'écraserait. Le spinlock
+//    (portMUX) laisse un seul cœur à la fois toucher la grille.
+static portMUX_TYPE grid_mux = portMUX_INITIALIZER_UNLOCKED;
+
+// 🎓 Âge de chaque cellule : 0 = morte, 1 = née à cette génération, puis +1
+//    à chaque génération survécue (qadd8 = addition qui bloque à 255). C'est
+//    CE tableau que lit le séquenceur : une valeur ≠ 0 = une note, et sa
+//    grandeur règle le volume ou le timbre (SET AUDIO > AGE SON).
+static uint8_t ages[GRID_N];
+
+static void update_ages(bool grow) {   // grow = une génération vient de passer
+    for (int i = 0; i < GRID_N; i++)
+        ages[i] = !grid[i] ? 0 : grow ? qadd8(ages[i], 1) : max<uint8_t>(ages[i], 1);
+    audio_grid_update(ages);
+}
+
+// Toute modification de la grille par l'interface passe par ici. La LOOP
+// repart de la nouvelle image, et le son la lit tout de suite.
+void live_grid_edit(void (*edit)(uint8_t* g)) {
+    portENTER_CRITICAL(&grid_mux);
+    edit(grid);
+    hist_len = 0;
+    update_ages(false);
+    portEXIT_CRITICAL(&grid_mux);
+}
 
 static void evolve() {
     if (!cfg.loop_on) {
@@ -74,20 +100,21 @@ static void evolve() {
 static void on_beat() {
     // 🎓 SET GOL > EVOLUTION : une génération tous les 1, 2, 4 ou 16 temps
     static const uint8_t EVERY[] = {1, 2, 4, 16};
-    if (++beats_total % EVERY[cfg.evolution] == 0) evolve();
-    audio_grid_update(grid);
+    if (++beats_total % EVERY[cfg.evolution] == 0) {
+        portENTER_CRITICAL(&grid_mux);
+        evolve();
+        update_ages(true);
+        portEXIT_CRITICAL(&grid_mux);
+    }
 }
 
 static void new_seed() {
-    gol_randomize(grid, cfg.density / 100.0f);
-    symmetrize(grid);
-    live_grid_changed();
+    live_grid_edit([](uint8_t* g) { gol_randomize(g, cfg.density / 100.0f); symmetrize(g); });
 }
 
 void live_init() {
     gol_seed(esp_random());
     new_seed();
-    audio_grid_update(grid);
     audio_set_gol_step_callback(on_beat);
 }
 
@@ -97,7 +124,9 @@ static void push_audio_params() {
     p.bpm = cfg.bpm;  p.scale = cfg.scale;  p.tonic = cfg.tonic;  p.octave = cfg.octave;
     p.timbre = cfg.timbre;  p.arp = cfg.arp;  p.reverb = cfg.reverb;
     p.attack = cfg.attack;  p.decay = cfg.decay;
-    p.arp_mode = cfg.arp_mode;  p.arp_div = cfg.arp_div;  p.arp_groove = cfg.arp_groove;
+    p.arp_mode = cfg.arp_mode;  p.arp_div = cfg.arp_div;  p.arp_swing = cfg.arp_swing;
+    p.arp_gate = cfg.arp_gate;  p.chord = cfg.chord;  p.pompe = cfg.pompe;
+    p.arp_oct = cfg.arp_oct + 1;  p.age_mode = cfg.age_mode;  p.age_max = cfg.age_max;
     p.drum_volume = cfg.boom_vol * cfg.boom_master / 100;
     p.kit = cfg.kit;  p.swing = cfg.swing;
     memcpy(p.pattern, boom_pattern(), sizeof(p.pattern));
@@ -106,6 +135,10 @@ static void push_audio_params() {
         d.pitch = track_value(t, TV_PITCH);   d.decay = track_value(t, TV_DECAY);
         d.tone = track_value(t, TV_TONE);     d.volume = track_value(t, TV_VOLUME);
         d.proba = track_value(t, TV_PROBA);   d.mute = track_value(t, TV_MUTE);
+        for (int s = 0; s < 32; s++) {
+            p.step_velo[t][s]  = step_value(t, s, SV_VELO);
+            p.step_proba[t][s] = step_value(t, s, SV_PROBA);
+        }
     }
     audio_set_params(p);
 }
@@ -114,7 +147,6 @@ void live_tick() {
     if (cfg.playing == audio_is_paused()) audio_toggle_pause();   // ▶ → séquenceur
     audio_set_volume(cfg.volume);
     push_audio_params();
-    audio_grid_update(grid);   // dessin / nouvelle graine : le son lit toujours la grille affichée
 }
 
 // ---------------------------------------------------------------- overlay (valeur temporaire)
@@ -158,6 +190,22 @@ static CRGB cell_color(int x, int y) {
 }
 
 // ---------------------------------------------------------------- GOL (lecture)
+// Appuis longs en live (setup "Joueur") : PLUIE réveille une grille qui meurt,
+// et on coupe / remet la batterie sans passer par les menus.
+static void rain() {
+    live_grid_edit([](uint8_t* g) {
+        for (int i = 0; i < 12; i++) gol_set(g, random(DISP_W), random(DISP_H), 1);
+        symmetrize(g);
+    });
+    toast("PLUIE");
+}
+
+static void toggle_boom() {
+    static int16_t saved = 80;
+    if (cfg.boom_master) { saved = cfg.boom_master; cfg.boom_master = 0; toast("BOOM OFF"); }
+    else { cfg.boom_master = saved; toast("BOOM ON"); }
+}
+
 void gol_handle(const Event& ev) {
     switch (ev.type) {
         case EV_TURN_A:
@@ -179,7 +227,8 @@ void gol_handle(const Event& ev) {
             new_seed();
             toast("SEED");
             break;
-        case EV_LONG_A: case EV_LONG_B: nav_back(); break;
+        case EV_LONG_A: rain(); break;
+        case EV_LONG_B: toggle_boom(); break;
         default: break;
     }
 }
@@ -202,29 +251,42 @@ static const char* const TOOL_NAMES[] = {"CRAYON", "GOMME", "INVERSE"};
 static int8_t  cur_x = 8, cur_y = 8;
 static uint8_t tool = TOOL_INVERT;
 
-static void clear_grid() { gol_clear(grid); live_grid_changed(); toast("VIDE"); }
+static void clear_grid() { live_grid_edit(gol_clear); toast("VIDE"); }
+
+static void apply_tool() {
+    live_grid_edit([](uint8_t* g) {
+        if (tool == TOOL_INVERT) gol_toggle(g, cur_x, cur_y);
+        else gol_set(g, cur_x, cur_y, tool == TOOL_PEN);
+    });
+}
+
+// 🎓 Molette ENFONCÉE + tournée = on trace : l'outil s'applique à chaque case
+//    traversée (cran par cran, pour ne pas sauter de case si on tourne vite).
+static void move(int8_t& c, int8_t delta, int size, bool paint) {
+    int8_t dir = delta > 0 ? 1 : -1;
+    if (paint && tool != TOOL_INVERT) apply_tool();   // la case de départ aussi (inverser 2× l'effacerait)
+    for (int i = 0; i != delta; i += dir) {
+        c = (c + dir + size) % size;
+        if (paint) apply_tool();
+    }
+}
 
 void draw_handle(const Event& ev) {
     switch (ev.type) {
         case EV_TURN_A:
             if (ev.shift) turn_brightness(ev.delta);
-            else cur_x = (cur_x + ev.delta + DISP_W * 8) % DISP_W;   // 🎓 +16×8 : évite un modulo négatif
+            else move(cur_x, ev.delta, DISP_W, ev.pushed);
             break;
         case EV_TURN_B:
             if (ev.shift) turn_volume(ev.delta);
-            else cur_y = (cur_y + ev.delta + DISP_H * 8) % DISP_H;
+            else move(cur_y, ev.delta, DISP_H, ev.pushed);
             break;
-        case EV_CLICK_A:
-            if (tool == TOOL_INVERT) gol_toggle(grid, cur_x, cur_y);
-            else gol_set(grid, cur_x, cur_y, tool == TOOL_PEN);
-            live_grid_changed();
-            break;
+        case EV_CLICK_A: apply_tool(); break;
         case EV_CLICK_B:
             tool = (tool + 1) % 3;
             toast(TOOL_NAMES[tool]);
             break;
         case EV_LONG_PLAY: confirm_open("EFFACER ?", clear_grid); break;
-        case EV_LONG_A: case EV_LONG_B: nav_back(); break;
         default: break;
     }
 }

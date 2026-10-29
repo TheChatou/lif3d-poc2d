@@ -10,10 +10,10 @@
 //    fois. Chaque écran a 2 fonctions : handle() (réagit aux événements) et
 //    render() (dessine). Changer d'écran = changer la valeur de `current`.
 enum Screen : uint8_t {
-    SCR_BOOT, SCR_HUB, SCR_GOL, SCR_DRAW, SCR_BOOM, SCR_REC, SCR_NAME, SCR_PAGE, SCR_CONFIRM, SCR_DIAG
+    SCR_BOOT, SCR_HUB, SCR_GOL, SCR_DRAW, SCR_BOOM, SCR_REC, SCR_NAME, SCR_PAGE, SCR_CONFIRM, SCR_DIAG, SCR_TRIP, SCR_BRICK, SCR_PONG
 };
 
-enum PageId : uint8_t { PAGE_SET_AUDIO, PAGE_SET_GOL, PAGE_SET_BOOM, PAGE_SYS, PAGE_TRACK, PAGE_COUNT };
+enum PageId : uint8_t { PAGE_SET_AUDIO, PAGE_SET_GOL, PAGE_SET_BOOM, PAGE_SYS, PAGE_TRACK, PAGE_STEP, PAGE_COUNT };
 enum RecBank : uint8_t { BANK_GOL, BANK_BOOM, BANK_AUDIO };
 
 // Variantes à comparer en direct depuis SYS
@@ -25,7 +25,9 @@ enum SelStyle  : int16_t { SEL_BRIGHT, SEL_BLINK, SEL_COLOR };
 struct Settings {
     int16_t bpm = 60, scale = 0, tonic = 9, octave = 2, timbre = 0, arp = 1, reverb = 30, boom_vol = 75;
     int16_t attack = 15, decay = 40;
-    int16_t arp_mode = 2, arp_div = 2, arp_groove = 0;   // RANDOM ×3, sans groove
+    int16_t arp_mode = 8, arp_div = 2, arp_swing = 0;    // RANDOM 1/8T, sans swing (STYLE : voir audio.h)
+    int16_t arp_gate = 100, chord = 0, pompe = 0;      // notes libres, accord TOUT, pompe G A
+    int16_t arp_oct = 0, age_mode = 1, age_max = 4;    // arpège sur 1 octave ; âge → VOLUME, mûre à 4 générations
     int16_t rule = 0, evolution = 0, loop_on = 0, loop_len = 1, loop_mode = 0, symmetry = 0, density = 30, palette = 0;
     int16_t kit = 1, swing = 0, boom_master = 80;
     int16_t boot_style = BOOT_LOGO, hub_style = HUB_TWO_LEVELS, sel_style = SEL_BRIGHT, brightness = 20;
@@ -53,7 +55,7 @@ CRGB sel_color(CRGB base, bool selected);   // applique le style de sélection c
 void draw_label(const Font& f, const char* s, int y, CRGB c, bool may_scroll, uint32_t t0);
 
 // ---- pages de réglages + confirmation (ui_pages.cpp)
-void page_open(uint8_t page_id, uint8_t track = 0);
+void page_open(uint8_t page_id, uint8_t track = 0, uint8_t step = 0);
 void page_handle(const Event& ev);
 void page_render();
 void confirm_open(const char* question, void (*on_yes)());
@@ -69,12 +71,23 @@ void boom_handle(const Event& ev);  void boom_render();
 void rec_open(uint8_t bank);
 void name_open(const char* initial, const char* fallback, void (*on_done)(const char*));
 void name_handle(const Event& ev); void name_render();
-uint8_t*  live_grid();          // grille GoL affichée/jouée (ui_live.cpp)
-void      live_grid_changed();  // à appeler après avoir modifié la grille (relance la LOOP)
+uint8_t*  live_grid();          // grille GoL affichée/jouée (ui_live.cpp) — LECTURE seulement
+void      live_grid_edit(void (*edit)(uint8_t* g));   // toute écriture passe par ici (verrou entre cœurs)
 enum TrackValue : uint8_t { TV_PITCH, TV_DECAY, TV_TONE, TV_VOLUME, TV_PAN, TV_SWING, TV_PROBA, TV_MUTE };
 int16_t   track_value(uint8_t track, uint8_t which);   // réglages d'une piste BOOM (ui_pages.cpp)
+enum StepValue : uint8_t { SV_VELO, SV_PROBA };
+int16_t   step_value(uint8_t track, uint8_t step, uint8_t which);   // réglages d'un pas BOOM
 uint32_t* boom_pattern();       // pattern BOOM 8 pistes (ui_boom.cpp)
 void rec_handle(const Event& ev);   void rec_render();
 void diag_handle(const Event& ev);  void diag_render();
+void trip_handle(const Event& ev);  void trip_render();    // EXTRA (ui_trip.cpp)
+void brick_handle(const Event& ev); void brick_render();   // EXTRA (ui_brick.cpp)
+void pong_handle(const Event& ev);  void pong_render();    // EXTRA (ui_pong.cpp)
 void overlay_render();          // barre de volume / valeur temporaire par-dessus le live
 void overlay_show(const char* label, int value, int max);
+
+// ---- sauvegarde flash (ui_storage.cpp)
+bool nvs_load(const char* key, void* data, size_t len);   // false = rien de sauvé (ou ancienne version)
+void nvs_save(const char* key, const void* data, size_t len);
+void settings_load();
+void settings_tick();
