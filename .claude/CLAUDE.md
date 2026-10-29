@@ -215,11 +215,13 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [x] **Étape 3b — Musique dans `ui_test`** (2026-10-26) : Mozzi/`audio.cpp` branché, l'horloge du séquenceur fait avancer le GoL ; ▶ et volume reliés. Reste à relier BPM/gamme/timbre/BOOM (étape 5)
 - [x] **Étape 3c — Réparer les 2 encodeurs** (2026-10-26) : condos retirés, `ENC_SINGLE_CHANNEL 0`, `INVERT_A/B 1` (horaire = descendre/augmenter)
 - [ ] **Son qui crache encore** (2026-10-25) : saturation/soft-clip + Mozzi sur cœur 0 + réglages arpège (MODE/VITESSE/GROOVE) faits et flashés, mais pas encore propre. Prochains suspects : saturation analogique entrée ampli (diviseur), TDA2822 gauche, grain du DAC 8 bits → voir mémoire projet
-- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal + sauvegarde NVS (presets + réglages SYS, plan validé : `src/ui/storage.*`, `Preferences`)
+- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal (sauvegarde NVS ✅ faite le 2026-10-28 dans `src/ui/ui_storage.cpp`)
 - [ ] **Étape 5 — Audio** : relier les réglages (BPM, gamme, timbre…) à `audio.cpp` + **gain staging TDA2822 / PAM8403**
 - [ ] **Étape 6 — Assemblage** : `src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
 - [ ] **Sifflement audio = canal GAUCHE du module TDA2822** (diagnostic 2026-10-26, ce ne sont PAS les LEDs) : filtre RC 10 Ω + 1000 µF sur son VCC commandé ; plans B (Zobel, contourner le TDA, MAX98357A) → `docs/analyses/20261025_interferences_leds_audio.md` §5
 - [x] Condos de découplage 100µF en sortie TDA2822 : présents sur le module (vérifié visuellement 2026-10-24)
+- [x] **Session 2026-10-28** (détail : `docs/progress.md`) : EXTRA (TRIP / BRICK / PONG), refonte contrôles (appui long 2 molettes = MENU, DRAW au glisser, BOOM pas/piste), sauvegarde NVS (`src/ui/ui_storage.cpp`), fix reverb, audit ponytail (`docs/analyses/20261028_audit_ponytail.md`, corrigés 1/2/3/7/9)
+- [ ] **REPRENDRE ICI (2026-10-29)** : flasher le lot non flashé (AGE SON / AGE MAX, arp CONVERGE/DIVERGE/PEDALE + OCTAVES ARP), recueillir les retours de tests de Felix, puis **commiter** (rien n'est commité depuis `ef736e9`). Ensuite : tests HP G/D, audit restant (4, 5, 6, 8, 10–15)
 
 ---
 

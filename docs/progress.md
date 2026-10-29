@@ -153,3 +153,27 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 - [ ] Valider (ou non) le mode édition des réglages
 - [ ] Relier BPM / gamme / timbre / BOOM au son
 - [ ] Figer aussi FastLED 3.10.3 dans `env:esp32dev` et `env:led_test`
+
+---
+
+## 2026-10-28 — Extras (TRIP / BRICK / PONG), refonte des contrôles, sauvegarde flash, audit
+
+**Fait (tout flashé et compilé, sauf le dernier lot, voir ⚠) :**
+- **EXTRA** dans le hub : `TRIP` (visualiseur PLASMA / TUNNEL damier « demoscene » / MANDALA / KALEIDO ; molettes = vitesse, palette, complexité, zoom ; ▶+molette = teinte ; texte brut par-dessus, sans bandeau), `BRICK` (casse-brique avec étincelles, tremblement, feu d'artifice), `PONG` 2 joueurs
+- **Contrôles** : appui long sur les 2 molettes = MENU partout (« QUITTER ? » en DRAW / BRICK / PONG, jeu en pause) ; hub : clic gauche = remonter, clic droit = entrer ; DRAW : molette enfoncée + tournée = tracer ; GOL : long gauche = PLUIE, long droit = BOOM OFF/ON ; BOOM : clic = pas, long gauche = piste, long droit = page PAS (VÉLOCITÉ + PROBA, reliées au son)
+- **Sauvegarde NVS** (`src/ui/ui_storage.cpp`) : presets REC écrits à chaque sauvegarde/suppression, réglages 2 s après le dernier changement
+- **Reverb** : `>> 8` → `/ 256` (cycle limite qui faisait du bruit même en pause)
+- **Audit ponytail** → `docs/analyses/20261028_audit_ponytail.md` ; corrigés : n°1 (écrêtage dur `constrain(dry)` supprimé), n°2/3 (verrous entre cœurs : `snap_mux` dans audio.cpp, `live_grid_edit()` + `grid_mux`), n°7 (cast angle TRIP), n°9 (debug série supprimé)
+- Analyse son → `docs/analyses/20261028_son_qui_crache_cpu_ou_ampli.md` : le CPU n'est pas en cause ; suspects = saturation analogique des amplis (pont diviseur 10k/1k) + 8 bits
+- Vérifié : le logiciel envoie le MÊME son mono aux 2 DAC → déséquilibre G/D = matériel (canal gauche TDA2822)
+
+**⚠ Codé + compilé mais PAS flashé** (boîte débranchée) :
+- Âge des cellules → son : SET AUDIO > AGE SON (OFF / VOLUME par défaut / TIMBRE), SET GOL > AGE MAX (1–8)
+- Arpège : modes CONVERGE / DIVERGE / PEDALE + SET AUDIO > OCTAVES ARP (1–3)
+
+**Prochaines étapes :**
+- [ ] Flasher le dernier lot (VIN débranché, USB) et l'écouter (AGE SON sur OFF = son d'avant)
+- [ ] Retours de Felix sur ses tests : extras, contrôles, sauvegarde après extinction, bruit reverb en pause
+- [ ] Tests HP : inverser les HP puis les fils DAC→ampli pour confirmer le canal gauche (proposé : réglage SYS « TEST HP G/D », pas encore fait)
+- [ ] Audit restant : n°4 (reverb int16), 5 (clic à l'écriture flash ?), 6 (PAN/SWING piste inutiles), 8 (test GoL), 10–15
+- [ ] Commiter tout ce travail (rien n'est commité depuis `ef736e9`)
