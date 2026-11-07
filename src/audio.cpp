@@ -8,6 +8,9 @@
 #include <tables/triangle_warm8192_int8.h>
 #include <tables/smoothsquare8192_int8.h>
 #include <tables/whitenoise8192_int8.h>
+#include <Sample.h>
+#include "drum_samples.h"   // kit STUDIO, généré par tools/gen_drums.py
+#include "audio_out.h"     // filtre, limiteur, dither
 #include "gol.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -63,37 +66,84 @@ static const Timbre TIMBRES[] = {
     {SMOOTHSQUARE8192_DATA, SIN8192_DATA, 2.0f, 40, 0, 1, 4},                 // LIBRE (carré adouci, plus "8 bits")
 };
 
-// 🎓 3 voix : en arpège, chaque note prend la voix suivante (la précédente
-//    finit de résonner au lieu d'être coupée net) ; en accord, les 3 jouent
-//    ensemble.
-#define VOICES 3
+// 🎓 Jusqu'à 16 voix : en arpège, chaque note prend la voix suivante (la
+//    précédente finit de résonner au lieu d'être coupée net) ; en accord,
+//    toutes les notes de la colonne jouent ensemble. SYS > VOIX en limite
+//    le nombre si le processeur peine (P.voices).
+#define VOICES 16
 static Osc     v1[VOICES], v2[VOICES];
 static Env     venv[VOICES];
 static uint8_t next_voice = 0;
 static uint16_t w2 = 16;                 // dosage de l'harmonique du timbre (/256)
 static float   ratio = 2.0f;
 static uint8_t colAge[GRID_ROWS];        // âge des cellules de la colonne jouée (0 = morte)
-static uint8_t vgain[VOICES] = {255, 255, 255};   // volume propre à chaque voix (âge → VOLUME)
-static uint16_t vw2[VOICES] = {16, 16, 16};       // harmonique propre à chaque voix (âge → TIMBRE)
+static uint8_t vgain[VOICES];                     // volume propre à chaque voix (âge → VOLUME)
+static uint16_t vw2[VOICES];                      // harmonique propre à chaque voix (âge → TIMBRE)
+static uint16_t note_gain = 256;                  // /256 : baisse chaque note quand un accord en joue beaucoup
+static uint16_t fired_rows = 0;                   // rangées jouées pendant le coup d'arpège en cours
+static volatile uint16_t lit_rows = 0;            // … et celles du dernier coup terminé (lues par l'écran)
 static uint16_t vgate[VOICES] = {};                // ticks restants avant de couper la note (0 = résonne)
 static uint16_t gate_ticks = 0;                    // durée d'une note selon le GATE (0 = 100 %)
 enum { AGE_OFF, AGE_VOLUME, AGE_TIMBRE };
 
 // semis = transposition en demi-tons (octaves de l'arpège)
-static void trigger_note(uint8_t row, uint8_t semis = 0) {
+// 🎓 midi = numéro de note MIDI (60 = Do central, +1 = un demi-ton)
+static void start_voice(uint8_t midi, uint8_t gain, uint16_t harm, uint16_t gate) {
     uint8_t v = next_voice;
-    next_voice = (next_voice + 1) % VOICES;
+    next_voice = (next_voice + 1) % constrain(P.voices, 1, VOICES);
+    vgain[v] = (gain * note_gain) >> 8;
+    vw2[v]   = harm;
+    float f = mtof((float)min<uint8_t>(127, midi));
+    v1[v].setFreq(f);
+    v2[v].setFreq(f * ratio);
+    venv[v].noteOn();
+    vgate[v] = gate;   // 0 = la note résonne jusqu'au bout de son enveloppe
+}
+
+static void trigger_note(uint8_t row, uint8_t semis = 0) {
+    fired_rows |= 1 << row;
     // 🎓 Maturité 64..255 : une cellule née joue à 25 %, une cellule de
     //    age_max générations (ou plus) à 100 % — comme dans le simulateur.
     uint8_t amax = max<uint8_t>(1, P.age_max), a = constrain(colAge[row], 1, amax);
     uint8_t m = amax > 1 ? 64 + 191 * (a - 1) / (amax - 1) : 255;
-    vgain[v] = P.age_mode == AGE_VOLUME ? m : 255;
-    vw2[v]   = P.age_mode == AGE_TIMBRE ? min(230, (w2 + 48) * m / 192) : w2;   // jeune = son pur, mûre = brillant
-    float f = mtof((float)min(127, notes[row] + semis));
-    v1[v].setFreq(f);
-    v2[v].setFreq(f * ratio);
-    venv[v].noteOn();
-    vgate[v] = gate_ticks;
+    start_voice(notes[row] + semis, P.age_mode == AGE_VOLUME ? m : 255,
+                P.age_mode == AGE_TIMBRE ? min(230, (w2 + 48) * m / 192) : w2, gate_ticks);   // jeune = son pur, mûre = brillant
+}
+
+// ============================================================================
+// MÉLODIE DE DÉMARRAGE — 4 temps, un accord arpégé par temps
+// ============================================================================
+// 🎓 Comme si le séquenceur lisait 4 colonnes : à chaque temps, un accord de
+//    4 notes joué note par note (doubles-croches légèrement swinguées, ~75 BPM).
+//    Enchaînement I – vi – IV – V (Mi maj7, Do# m7, La maj7, Si 7), le plus
+//    classique de la pop.
+//    Notes courtes (GATE) + une basse tenue sur chaque temps : on entend
+//    chaque note distinctement au lieu d'une bouillie. Joue même en pause.
+static const uint8_t JINGLE[4][4] = {
+    {64, 68, 71, 75},   // Mi maj7  : Mi Sol# Si Ré#
+    {61, 64, 68, 71},   // Do# m7   : Do# Mi Sol# Si
+    {57, 61, 64, 68},   // La maj7  : La Do# Mi Sol#
+    {59, 63, 66, 69},   // Si 7     : Si Ré# Fa# La
+};
+#define JINGLE_STEP  25   // ticks de contrôle par double-croche (≈ 200 ms)
+#define JINGLE_SWING  2   // retard des notes impaires (≈ 15 ms)
+#define JINGLE_GATE  13   // durée d'une note de l'arpège (≈ 100 ms, piqué)
+static volatile bool jingle_req = false;
+static int8_t   jingle_pos = -1;
+static uint16_t jingle_t = 0;
+
+void audio_play_jingle() { jingle_req = true; }
+
+static void jingle_tick() {
+    if (jingle_req) { jingle_req = false; jingle_pos = 0; jingle_t = 0; }
+    if (jingle_pos < 0) return;
+    uint16_t at = jingle_pos * JINGLE_STEP + ((jingle_pos & 1) ? JINGLE_SWING : 0);
+    if (jingle_t++ != at) return;
+    note_gain = 256;
+    const uint8_t* chord = JINGLE[jingle_pos / 4];
+    if (jingle_pos % 4 == 0) start_voice(chord[0] - 12, 150, w2, JINGLE_STEP * 4);   // basse du temps
+    start_voice(chord[jingle_pos % 4], 190, w2, JINGLE_GATE);
+    if (++jingle_pos >= 16) jingle_pos = -1;   // fini, pas d'accord final
 }
 
 // ============================================================================
@@ -112,27 +162,29 @@ static void trigger_note(uint8_t row, uint8_t semis = 0) {
 #define ALLPASS_LEN     225   // ~6.9ms
 #define ALLPASS_GAIN    128   // /256 = 0.5
 
-static int8_t  comb1_buf[COMB1_LEN] = {0}, comb2_buf[COMB2_LEN] = {0}, comb3_buf[COMB3_LEN] = {0};
-static int8_t  allpass_buf[ALLPASS_LEN] = {0};
+// 🎓 Tampons en 16 bits (~7,5 Ko de RAM) : en 8 bits, la queue de reverb
+//    n'avait que quelques niveaux de volume → grain et souffle audibles.
+static int16_t comb1_buf[COMB1_LEN] = {0}, comb2_buf[COMB2_LEN] = {0}, comb3_buf[COMB3_LEN] = {0};
+static int16_t allpass_buf[ALLPASS_LEN] = {0};
 static uint16_t comb1_idx = 0, comb2_idx = 0, comb3_idx = 0, allpass_idx = 0;
 static uint16_t reverb_mix = 77;   // /256 — dose de son "mouillé" (réglage REVERB)
 
-// 🎓 Saturation : un int8_t qui déborde ne bloque pas à 127, il "fait le tour"
-//    jusqu'à -128 → saut brutal de la forme d'onde = claquement. On calcule
-//    donc en int16 puis on BLOQUE aux bornes avant de ranger dans l'int8.
-static inline int8_t sat8(int16_t x) { return x > 127 ? 127 : (x < -128 ? -128 : x); }
+// 🎓 Saturation : un entier qui déborde ne bloque pas à son maximum, il "fait
+//    le tour" vers le minimum → saut brutal de la forme d'onde = claquement.
+//    On calcule donc en 32 bits puis on BLOQUE aux bornes avant de ranger.
+static inline int16_t sat16(int32_t x) { return x > 32767 ? 32767 : (x < -32768 ? -32768 : x); }
 
-static inline int8_t comb_filter(int8_t* buf, uint16_t len, uint16_t& idx, int8_t input) {
-    int8_t delayed = buf[idx];
-    buf[idx] = sat8(input + (((int16_t)delayed * COMB_FEEDBACK) / 256));
+static inline int16_t comb_filter(int16_t* buf, uint16_t len, uint16_t& idx, int16_t input) {
+    int16_t delayed = buf[idx];
+    buf[idx] = sat16(input + ((int32_t)delayed * COMB_FEEDBACK) / 256);
     idx = (idx + 1 >= len) ? 0 : idx + 1;
     return delayed;
 }
 
-static inline int8_t allpass_filter(int8_t input) {
-    int8_t delayed = allpass_buf[allpass_idx];
-    int8_t out = sat8(delayed - (((int16_t)input * ALLPASS_GAIN) / 256));
-    allpass_buf[allpass_idx] = sat8(input + (((int16_t)delayed * ALLPASS_GAIN) / 256));
+static inline int16_t allpass_filter(int16_t input) {
+    int16_t delayed = allpass_buf[allpass_idx];
+    int16_t out = sat16(delayed - ((int32_t)input * ALLPASS_GAIN) / 256);
+    allpass_buf[allpass_idx] = sat16(input + ((int32_t)delayed * ALLPASS_GAIN) / 256);
     allpass_idx = (allpass_idx + 1 >= ALLPASS_LEN) ? 0 : allpass_idx + 1;
     return out;
 }
@@ -151,6 +203,19 @@ static const Kit KITS[] = {
     {90,  70,  4400, 9000, false},   // ACOUSTIC (validé)
     {120, 80,  3500, 6000, true},    // LOFI : son "écrasé" (moins de bits)
 };
+
+// 🎓 Kit STUDIO : au lieu de synthétiser les percussions en direct, on joue
+//    des sons calculés à l'avance sur PC (tools/gen_drums.py) avec de bien
+//    meilleurs outils (saturation, filtres, 6 ondes "métalliques" façon 808).
+//    Comme les vraies boîtes à rythmes des années 80 : des échantillons.
+#define KIT_STUDIO 3
+typedef Sample<DRUM_CELLS, AUDIO_RATE> DrumSample;
+static DrumSample smp[8];
+static uint8_t    g_smp[8];   // volume de chaque échantillon en cours (0 = muet)
+
+static LowPass lowpass;   // étage de sortie : voir audio_out.h
+static Limiter limiter;
+static Dither  dither;
 
 static Osc kickOsc, tomOsc, snareN, hatN, clapN;
 static Env kickEnv, tomEnv, snareEnv, hatEnv, clapEnv;
@@ -184,6 +249,13 @@ static void fire_step(uint8_t step) {
         // 🎓 Gain réglé pour qu'aux valeurs par défaut (80 × 60) le coup sonne à ~50 %
         //    — laisse de la marge quand kick + caisse + charleston tombent ensemble
         uint8_t g = min<uint32_t>(255, (uint32_t)tr.volume * P.drum_volume * 255 / 9600) * P.step_velo[t][step] / 100;
+        if (P.kit == KIT_STUDIO) {
+            if (t == TR_HAT) g_smp[TR_OHAT] = 0;   // 🎓 "choke" : le charley fermé coupe l'ouvert, comme sur une vraie batterie
+            smp[t].setFreq((float)AUDIO_RATE / DRUM_CELLS * pf);   // PITCH : vitesse de lecture
+            smp[t].start();
+            g_smp[t] = g;
+            continue;
+        }
         switch (t) {
             case TR_KICK:
                 kickGlide = {pf * (45 + 105 * tr.tone / 60.0f), 45 * pf, 0, 12};
@@ -291,16 +363,22 @@ static void keep_interval(uint8_t which) {
 // 🎓 Rangée 15 = la plus grave : "UP" (grave → aigu) lit donc les rangées
 //    de bas en haut.
 static void build_seq(uint8_t col) {
-    seqLen = 0;
+    uint8_t ages[GRID_ROWS], found[GRID_ROWS], n = 0;
     portENTER_CRITICAL(&snap_mux);
     for (int y = GRID_ROWS - 1; y >= 0; y--) {
-        colAge[y] = snap[y * GRID_COLS + col];
-        if (colAge[y]) seq[seqLen++] = y;
+        ages[y] = snap[y * GRID_COLS + col];
+        if (ages[y]) found[n++] = y;
     }
     portEXIT_CRITICAL(&snap_mux);
+    // 🎓 REPETE INF : colonne vide → on garde la suite (et les âges) de la
+    //    dernière colonne pleine, l'arpège continue de tourner dessus.
+    if (!n && P.arp && P.arp_hold && seqLen) return;
+    memcpy(colAge, ages, sizeof(colAge));
+    memcpy(seq, found, n);
+    seqLen = n;
     if (!seqLen) return;
     uint8_t mode = P.arp ? P.arp_mode : ARP_CHORD;
-    uint8_t up[GRID_ROWS], n = seqLen;
+    uint8_t up[GRID_ROWS];   // n = seqLen ici
     memcpy(up, seq, n);
     if (mode == ARP_DOWN || mode == ARP_DOWNUP) {
         reverse(seq, seqLen);
@@ -334,18 +412,22 @@ static void pompe_fire() {
     const char* m = POMPE_PATTERNS[min<uint8_t>(P.pompe, 3)];
     bool high = m[arp_tick % strlen(m)] == 'A';
     uint8_t split = max(1, seqLen / 3);
-    if (high && split < seqLen) {
-        for (uint8_t i = max<uint8_t>(split, seqLen - VOICES); i < seqLen; i++) trigger_note(seq[i]);
-    } else {
-        for (uint8_t i = 0; i < min<uint8_t>(split, VOICES); i++) trigger_note(seq[i]);
-    }
+    uint8_t nv = constrain(P.voices, 1, VOICES), from = 0, to = min<uint8_t>(split, nv);
+    if (high && split < seqLen) { from = max<int>(split, seqLen - nv); to = seqLen; }
+    note_gain = to - from > 3 ? 256 * 3 / (to - from) : 256;
+    for (uint8_t i = from; i < to; i++) trigger_note(seq[i]);
 }
 
 // Une sous-division d'arpège : une note, un groupe (POMPE) ou tout l'accord
 static void arp_fire() {
-    if (!seqLen) return;
+    fired_rows = 0;
+    if (!seqLen) { lit_rows = 0; return; }
+    // 🎓 Gros accord : chaque note un peu moins fort (au-delà de 3 notes),
+    //    pour que 10 notes ne sonnent pas 3× plus fort que 3.
+    uint8_t n = chord_mode() ? min<uint8_t>(seqLen, constrain(P.voices, 1, VOICES)) : 1;
+    note_gain = n > 3 ? 256 * 3 / n : 256;
     if (chord_mode()) {
-        for (uint8_t i = 0; i < min<uint8_t>(seqLen, VOICES); i++) trigger_note(seq[i]);
+        for (uint8_t i = 0; i < n; i++) trigger_note(seq[i]);
     } else if (P.arp_mode == ARP_POMPE) {
         pompe_fire();
     } else {
@@ -359,6 +441,7 @@ static void arp_fire() {
         }
         trigger_note(seq[idx % seqLen], 12 * (idx / seqLen));
     }
+    lit_rows = fired_rows;
     arp_tick++;
 }
 
@@ -386,6 +469,7 @@ static void apply_params(const AudioParams& p) {
     col_ticks   = s16_ticks * 4;
     swing_ticks = s16_ticks * min<uint8_t>(P.swing, 100) / 200;      // au max une demi double-croche
     reverb_mix  = (uint16_t)min<uint8_t>(P.reverb, 100) * 256 / 100;
+    lowpass.set(min<uint8_t>(P.cutoff, 100), min<uint8_t>(P.reso, 100), AUDIO_RATE);
 
     const Timbre& t = TIMBRES[min<uint8_t>(P.timbre, 6)];
     ratio = t.ratio;
@@ -438,6 +522,7 @@ static void audio_task(void*) {
 }
 
 void audio_init() {
+    for (int t = 0; t < 8; t++) smp[t].setTable(DRUM_TABLES[t]);
     kickOsc.setTable(SIN8192_DATA);
     tomOsc.setTable(SIN8192_DATA);
     snareN.setTable(WHITENOISE8192_DATA);
@@ -447,6 +532,7 @@ void audio_init() {
     tomEnv.setADLevels(220, 0);
     snareEnv.setADLevels(200, 60);
     clapEnv.setADLevels(180, 0);
+    for (int v = 0; v < VOICES; v++) { vgain[v] = 255; vw2[v] = 16; }
     apply_params(P);   // calcule tempo, gamme, timbre à partir des valeurs par défaut
     startMozzi(CONTROL_RATE);
     xTaskCreatePinnedToCore(audio_task, "audio", 4096, nullptr, 2, nullptr, 0);
@@ -461,6 +547,7 @@ void audio_grid_update(const uint8_t* grid) {
 void audio_set_gol_step_callback(GolStepCallback cb) { golStepCb = cb; }
 uint8_t audio_current_col() { return cur_col; }
 uint8_t audio_drum_step() { return drum_step; }
+uint16_t audio_lit_rows() { return paused ? 0 : lit_rows; }
 void audio_toggle_pause() { paused = !paused; }
 bool audio_is_paused() { return paused; }
 
@@ -492,6 +579,7 @@ void updateControl() {
     glide(kickOsc, kickGlide);
     glide(tomOsc, tomGlide);
 
+    jingle_tick();
     if (paused) return;   // 🎓 séquenceur figé : ni nouveau temps, ni nouvelle note
 
     if (ctrl_ticks == 0) advance_beat();
@@ -512,49 +600,40 @@ void updateControl() {
     if (++ctrl_ticks >= col_ticks) ctrl_ticks = 0;
 }
 
-// 🎓 Écrêtage doux : linéaire jusqu'à ±64, puis la courbe se tasse et
-//    s'approche de ±127 sans jamais l'atteindre brutalement. Les crêtes sont
-//    arrondies (son "chaud", façon ampli à lampes) au lieu d'être coupées
-//    à angle droit (grésillement plein d'harmoniques aiguës).
-static inline int32_t soft_clip(int32_t x) {
-    int32_t a = x < 0 ? -x : x;
-    if (a > 64) { int32_t e = a - 64; a = 64 + 63 * e / (e + 63); }
-    return x < 0 ? -a : a;
-}
-
 int updateAudio() {
+    // 🎓 Tout le mixage est en échelle ×256 ("16 bits") : on ne jette les
+    //    décimales qu'une fois, à la fin (dither). Les voix sonnent même en
+    //    pause : les notes s'éteignent doucement et la mélodie de démarrage joue.
     int32_t dry = 0;
-    if (!paused) {
-        for (int v = 0; v < VOICES; v++) {
-            if (!venv[v].playing()) continue;
-            int32_t m = ((int32_t)v1[v].next() * (256 - vw2[v]) + (int32_t)v2[v].next() * vw2[v]) >> 8;
-            dry += (((m * venv[v].next()) >> 8) * vgain[v]) >> 8;
-        }
+    for (int v = 0; v < VOICES; v++) {
+        if (!venv[v].playing()) continue;
+        int32_t m = ((int32_t)v1[v].next() * (256 - vw2[v]) + (int32_t)v2[v].next() * vw2[v]) >> 8;
+        dry += (m * venv[v].next() * vgain[v]) >> 8;
     }
+    dry = lowpass.process(dry);   // FILTRE / RESO (contourné si FILTRE = 100)
 
     // 🎓 La reverb tourne TOUJOURS, même sans note : sinon sa queue de
     //    résonance se couperait net au lieu de s'éteindre doucement.
-    //    On ne lui envoie que la moitié du son sec : ses boucles amplifient
-    //    jusqu'à ~×3 un son tenu, il lui faut de la place.
-    int8_t rev_in = (int8_t)(dry / 2);
-    int16_t wet = (int16_t)comb_filter(comb1_buf, COMB1_LEN, comb1_idx, rev_in)
-                + (int16_t)comb_filter(comb2_buf, COMB2_LEN, comb2_idx, rev_in)
-                + (int16_t)comb_filter(comb3_buf, COMB3_LEN, comb3_idx, rev_in);
-    wet = allpass_filter((int8_t)(wet / 3));
+    //    Entrée réduite (>> 6) : ses boucles amplifient jusqu'à ~×3 un son tenu.
+    int16_t rev_in = sat16(dry >> 6);
+    int32_t wet = (int32_t)comb_filter(comb1_buf, COMB1_LEN, comb1_idx, rev_in)
+                + comb_filter(comb2_buf, COMB2_LEN, comb2_idx, rev_in)
+                + comb_filter(comb3_buf, COMB3_LEN, comb3_idx, rev_in);
+    wet = allpass_filter(wet / 3);
 
     // 🎓 Percussions hors reverb (volontairement "sèches") : attaques nettes
     int32_t drums = 0;
     if (!paused) {
-        drums += (((int32_t)kickOsc.next() * kickEnv.next() >> 8) * g_kick) >> 8;
-        drums += (((int32_t)tomOsc.next()  * tomEnv.next()  >> 8) * g_tom)  >> 8;
-        drums += (((int32_t)snareN.next()  * snareEnv.next() >> 8) * g_snare) >> 8;
-        drums += (((int32_t)hatN.next()    * hatEnv.next()  >> 8) * g_hat)  >> 8;
-        drums += (((int32_t)clapN.next()   * clapEnv.next() >> 8) * g_clap) >> 8;
-        if (KITS[min<uint8_t>(P.kit, 2)].crush) drums &= ~0x0F;   // 🎓 LOFI : on jette les 4 bits fins
+        drums += ((int32_t)kickOsc.next() * kickEnv.next() * g_kick) >> 8;
+        drums += ((int32_t)tomOsc.next()  * tomEnv.next()  * g_tom)  >> 8;
+        drums += ((int32_t)snareN.next()  * snareEnv.next() * g_snare) >> 8;
+        drums += ((int32_t)hatN.next()    * hatEnv.next()  * g_hat)  >> 8;
+        drums += ((int32_t)clapN.next()   * clapEnv.next() * g_clap) >> 8;
+        if (P.kit <= 2 && KITS[P.kit].crush) drums &= ~0xFFF;   // 🎓 LOFI : on jette les 4 bits fins (×256)
+        for (int t = 0; t < 8; t++)
+            if (g_smp[t]) drums += (int32_t)smp[t].next() * g_smp[t];   // kit STUDIO (échantillons)
     }
 
-    // 🎓 Marge (headroom) : on divise la somme par 2 avant la sortie, puis
-    //    écrêtage DOUX au lieu de raser net les crêtes.
-    int32_t out = soft_clip((dry + ((wet * (int32_t)reverb_mix) >> 8) + drums) / 2);
-    return (out * master_vol) >> 8;
+    int32_t mix = limiter.process(dry + ((wet * (int32_t)reverb_mix) >> 2) + drums);
+    return dither.process((mix * (int32_t)master_vol) >> 8, P.dither);
 }

@@ -32,6 +32,10 @@ struct AudioParams {
     uint8_t  arp_mode = 8, arp_div = 2;                      // RANDOM 1/8T = l'arpège d'avant
     uint8_t  arp_swing = 0, arp_gate = 100, chord = 0, pompe = 0;
     uint8_t  arp_oct = 1;                                    // l'arpège monte sur 1, 2 ou 3 octaves
+    uint8_t  arp_hold = 0;                                   // REPETE INF : colonne vide → on rejoue l'arpège précédent
+    uint8_t  voices = 16;
+    uint8_t  cutoff = 100, reso = 20;                        // FILTRE passe-bas (100 = ouvert) et sa RESOnance
+    uint8_t  dither = 1;                                     // SYS > DITHER : arrondi 8 bits "adouci"                                    // notes simultanées max (SYS > VOIX, 4–16)
     // 🎓 Âge des cellules → son : 0 OFF, 1 VOLUME (jeune = discret), 2 TIMBRE (jeune = pur)
     //    age_max : à partir de cet âge, une cellule est "mûre" (plein effet)
     uint8_t  age_mode = 1, age_max = 4;
@@ -68,6 +72,12 @@ void audio_set_gol_step_callback(GolStepCallback cb);
 // Colonne actuellement jouée (0..GRID_COLS-1) et pas de batterie (0..31)
 uint8_t audio_current_col();
 uint8_t audio_drum_step();
+
+// 🎓 Rangées (bit y = rangée y) des notes jouées au dernier coup d'arpège :
+//    l'écran GOL (curseur NOTES) les met en surbrillance.
+uint16_t audio_lit_rows();
+
+void audio_play_jingle();   // mélodie de démarrage (Mi maj7 arpégé), même en pause
 
 // 🎓 audio_init() lance une tâche FreeRTOS sur le cœur 0 qui appelle
 //    audioHook() en continu : loop() n'a plus à s'en occuper.
