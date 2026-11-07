@@ -181,12 +181,25 @@ static void turn_volume(int8_t d) {
     overlay_show("VOL", cfg.volume, 100);
 }
 
-static CRGB cell_color(int x, int y) {
+static CRGB palette_color(int y) {
     switch (cfg.palette) {
         case 1:  return COL_VISUAL;
         case 2:  return CHSV(y * 16, 220, 255);   // 🎓 HSV : la teinte varie avec la hauteur (= la note)
         default: return CRGB(120, 220, 255);
     }
+}
+
+// 🎓 AGE VISU : maturité 0..255 (0 = née, 255 = AGE MAX générations ou plus),
+//    le même calcul que le son (audio.cpp, trigger_note).
+//    LUMIERE : la cellule pâlit en vieillissant (plancher 1/3 pour rester visible).
+//    COULEUR : la teinte glisse du jaune (née) au violet (vieille), via vert et bleu.
+static CRGB cell_color(int x, int y) {
+    uint8_t amax = max<int16_t>(1, cfg.age_max), a = constrain(ages[y * DISP_W + x], 1, amax);
+    uint8_t m = amax > 1 ? 255 * (a - 1) / (amax - 1) : 255;
+    if (cfg.age_visu == 2) return CHSV(64 + m / 2, 230, 255);
+    CRGB c = palette_color(y);
+    if (cfg.age_visu == 1) c.nscale8(255 - m * 2 / 3);
+    return c;
 }
 
 // ---------------------------------------------------------------- GOL (lecture)

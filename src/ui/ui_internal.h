@@ -28,6 +28,7 @@ struct Settings {
     int16_t arp_mode = 8, arp_div = 2, arp_swing = 0;    // RANDOM 1/8T, sans swing (STYLE : voir audio.h)
     int16_t arp_gate = 100, chord = 0, pompe = 0;      // notes libres, accord TOUT, pompe G A
     int16_t arp_oct = 0, age_mode = 1, age_max = 4;    // arpège sur 1 octave ; âge → VOLUME, mûre à 4 générations
+    int16_t age_visu = 1;                              // âge → LEDs : 0 OFF, 1 LUMIERE (vieille = sombre), 2 COULEUR
     int16_t rule = 0, evolution = 0, loop_on = 0, loop_len = 1, loop_mode = 0, symmetry = 0, density = 30, palette = 0;
     int16_t kit = 1, swing = 0, boom_master = 80;
     int16_t boot_style = BOOT_LOGO, hub_style = HUB_TWO_LEVELS, sel_style = SEL_BRIGHT, brightness = 20;

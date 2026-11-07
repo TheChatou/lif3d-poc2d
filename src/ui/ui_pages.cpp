@@ -33,6 +33,7 @@ static const char* const CHORDS[]   = {"TOUT", "TIERCE", "QUINTE"};
 static const char* const POMPES[]   = {"G A", "G G A", "G G A A", "G A A"};
 static const char* const ARPOCTS[]  = {"1", "2", "3"};
 static const char* const AGEMODES[] = {"OFF", "VOLUME", "TIMBRE"};
+static const char* const AGEVISUS[] = {"OFF", "LUMIERE", "COULEUR"};
 static const char* const ARPDIVS[]  = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};   // T = triolet
 static const char* const RULES[]   = {"CONWAY", "CORAL", "DENSE", "BUILDER", "SYMETRIC", "HIGHLIFE", "BALANCED"};  // même ordre que GOL_RULES (gol.cpp)
 static const char* const EVOLS[]   = {"1 TEMPS", "2 TEMPS", "4 TEMPS", "MESURE"};
@@ -67,7 +68,7 @@ static const Setting SET_GOL[] = {
     {"LOOP", K_OPT, &cfg.loop_on, 0, 1, ONOFF},        {"DUREE LOOP", K_OPT, &cfg.loop_len, 0, 2, LOOPLEN},
     {"LECTURE", K_OPT, &cfg.loop_mode, 0, 1, LOOPMOD}, {"SYMETRIE", K_OPT, &cfg.symmetry, 0, 3, SYMS},
     {"DENSITE", K_BAR, &cfg.density, 0, 100, nullptr}, {"PALETTE", K_OPT, &cfg.palette, 0, 2, PALS},
-    {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr},
+    {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr},   {"AGE VISU", K_OPT, &cfg.age_visu, 0, 2, AGEVISUS},
 };
 static const Setting SET_BOOM[] = {
     {"KIT", K_OPT, &cfg.kit, 0, 2, KITS}, {"SWING", K_BAR, &cfg.swing, 0, 100, nullptr},
