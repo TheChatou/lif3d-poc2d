@@ -191,7 +191,7 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 ## État d'avancement
 
 ### Fait
-- [x] Simulateur GoL 3D Python (`/home/chatou/Documents/PERSO/Sound of Lif3D/Tests/lif3d_gol3d_simulator.py`)
+- [x] Simulateur GoL 3D Python (`/home/chatou/Documents/Projets/Lif3D/Volumetric_3D/Tests/lif3d_gol3d_simulator.py`)
 - [x] Visualiseur Web POV interactif (`pov_volumetrique_principe.html`)
 - [x] `platformio.ini` configuré (FastLED + Mozzi)
 - [x] Spécification complète rédigée (`docs/LIF2D_CONTEXT_CLAUDECODE.md`)

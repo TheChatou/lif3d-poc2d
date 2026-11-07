@@ -3,7 +3,7 @@ Lance le simulateur LIF2D (build gol.so si nécessaire, puis sim.py).
 ## Étapes
 
 1. **Trouver le projet**
-   - Le projet est dans `/home/chatou/Documents/PlatformIO/Projects/lif3d-poc2d/`
+   - Le projet est dans `/home/chatou/Documents/Projets/Lif3D/Lif2D/`
    - Le simulateur est dans le sous-dossier `simulator/`
 
 2. **Build gol.so si nécessaire**
