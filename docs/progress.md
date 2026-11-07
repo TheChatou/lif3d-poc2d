@@ -224,5 +224,5 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 **Prochaines étapes :**
 - [ ] Felix teste : kit STUDIO, FILTRE/RESO, DITHER ON/OFF, VOIX 16 (craquements ?), PSYTRANCE (~145 BPM), DNB (~174 BPM)
 - [ ] Souder le pont diviseur (fiche d'atelier)
-- [ ] Commiter tout le lot du 2026-11-07 (rien n'est commité depuis `2fadd7d`)
+- [x] Lot du 2026-11-07 commité (`300398d`, `72610c7`, `97c951d`)
 - [ ] Phase 1 V2 : trancher les questions de `docs/v2/architecture.md` §5 puis `/project-spec`

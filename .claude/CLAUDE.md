@@ -223,7 +223,7 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [x] **Session 2026-10-28** (détail : `docs/progress.md`) : EXTRA (TRIP / BRICK / PONG), refonte contrôles (appui long 2 molettes = MENU, DRAW au glisser, BOOM pas/piste), sauvegarde NVS (`src/ui/ui_storage.cpp`), fix reverb, audit ponytail (`docs/analyses/20261028_audit_ponytail.md`, corrigés 1/2/3/7/9)
 - [x] **Session 2026-10-29** (détail : `docs/progress.md`) : arpège façon Ableton (STYLE / RATE / GATE / SWING / ACCORD) + POMPE validée, SET AUDIO coloré par famille, presets migrés (`audio2`), commits `768c6de` + `96e1847`
 - [x] **Session 2026-11-07** (détail : `docs/progress.md`) : filtre RC soudé, gros lot UI (RESET, REDEMARRER, CURSEUR, palettes, REC, DRAW…), audio 16 bits + limiteur + dither + FILTRE/RESO + kit STUDIO échantillonné, presets BOOM, dossier `docs/v2/`
-- [ ] **REPRENDRE ICI (2026-11-08)** : retours de test de Felix (kit STUDIO, FILTRE/RESO, DITHER, VOIX 16, PSYTRANCE/DNB), souder le pont diviseur, **commiter** (rien depuis `2fadd7d`), puis phase 1 V2 (`docs/v2/plan.md`)
+- [ ] **REPRENDRE ICI (2026-11-08)** : retours de test de Felix (kit STUDIO, FILTRE/RESO, DITHER, VOIX 16, PSYTRANCE/DNB), souder le pont diviseur, puis phase 1 V2 (tout est commité : `97c951d`) (`docs/v2/plan.md`)
 
 ---
 
