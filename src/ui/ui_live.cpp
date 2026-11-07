@@ -199,11 +199,19 @@ static const Palette PALETTES[] = {
     { 96, 220,  2, -64},   // FORET    : vert, vieillit vers l'orange d'automne
     {224, 255,  0, 128},   // NEON     : rose, vieillit vers le vert acide (opposé)
     {  0, 240,  0, 200},   // IRIS     : crescendo arc-en-ciel, de rouge (née) à violet (mûre)
+    {224, 255,  0,  48},   // LAVE     : lampe à lave, teinte qui coule (voir palette_color)
 };
+#define PAL_LAVA 8
 
-static CRGB palette_color(int y, uint8_t maturity = 0, bool by_age = false) {
+// 🎓 LAMPE À LAVE : "bruit de Perlin" (inoise8 de FastLED) = un relief doux
+//    et continu, sans cassure. On le lit en 3D (x, y, temps) : en avançant
+//    lentement dans le temps, les "bulles" de couleur gonflent, se séparent
+//    et dérivent, du rose au rouge puis à l'orange — sous le GoL qui tourne.
+
+static CRGB palette_color(int x, int y, uint8_t maturity = 0, bool by_age = false) {
     const Palette& p = PALETTES[constrain(cfg.palette, 0, (int)(sizeof(PALETTES) / sizeof(Palette)) - 1)];
     uint8_t hue = p.hue + p.hue_y * y + (by_age ? p.age * maturity / 255 : 0);
+    if (cfg.palette == PAL_LAVA) hue += scale8(inoise8(x * 28, y * 28, millis() / 5), 90);
     return CHSV(hue, p.sat, 255);
 }
 
@@ -215,7 +223,7 @@ static CRGB palette_color(int y, uint8_t maturity = 0, bool by_age = false) {
 static CRGB cell_color(int x, int y) {
     uint8_t amax = max<int16_t>(1, cfg.age_max), a = constrain(ages[y * DISP_W + x], 1, amax);
     uint8_t m = amax > 1 ? 255 * (a - 1) / (amax - 1) : 255;
-    CRGB c = palette_color(y, m, cfg.age_visu == 2);
+    CRGB c = palette_color(x, y, m, cfg.age_visu == 2);
     if (cfg.age_visu == 1) c.nscale8_video(255 - m * 225 / 255);
     return c;
 }

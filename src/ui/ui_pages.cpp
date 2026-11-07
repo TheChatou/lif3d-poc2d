@@ -44,7 +44,7 @@ static const char* const EVOLS[]   = {"1 TEMPS", "2 TEMPS", "4 TEMPS", "MESURE"}
 static const char* const LOOPLEN[] = {"X2", "X4", "X8"};
 static const char* const LOOPMOD[] = {"CYCLE", "ALLER RETOUR"};
 static const char* const SYMS[]    = {"AUCUNE", "X", "Y", "XY"};
-static const char* const PALS[]    = {"GLACE", "AMBRE", "SPECTRE", "FEU", "OCEAN", "FORET", "NEON", "IRIS"};   // même ordre que PALETTES (ui_live.cpp)
+static const char* const PALS[]    = {"GLACE", "AMBRE", "SPECTRE", "FEU", "OCEAN", "FORET", "NEON", "IRIS", "LAVE"};   // même ordre que PALETTES (ui_live.cpp)
 static const char* const KITS[]    = {"808", "ACOUSTIC", "LOFI", "STUDIO"};   // STUDIO = échantillons (tools/gen_drums.py)
 static const char* const BOOTS[]   = {"TEXTE", "LOGO"};
 static const char* const HUBS[]    = {"2 NIVEAUX", "PLAT"};
@@ -75,7 +75,7 @@ static const Setting SET_GOL[] = {
     {"DENSITE", K_BAR, &cfg.density, 0, 100, nullptr},           {"SYMETRIE", K_OPT, &cfg.symmetry, 0, 3, SYMS},
     {"LOOP", K_OPT, &cfg.loop_on, 0, 1, ONOFF, G_LOOP},          {"DUREE LOOP", K_OPT, &cfg.loop_len, 0, 2, LOOPLEN, G_LOOP},
     {"LECTURE", K_OPT, &cfg.loop_mode, 0, 1, LOOPMOD, G_LOOP},
-    {"PALETTE", K_OPT, &cfg.palette, 0, 7, PALS, G_LOOK},        {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr, G_LOOK},
+    {"PALETTE", K_OPT, &cfg.palette, 0, 8, PALS, G_LOOK},        {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr, G_LOOK},
     {"AGE VISU", K_OPT, &cfg.age_visu, 0, 2, AGEVISUS, G_LOOK}, {"CURSEUR", K_OPT, &cfg.cursor, 0, 2, CURSORS, G_LOOK},
     {"RESET", K_ACTION, &act_reset, 0, 0, nullptr},
 };
