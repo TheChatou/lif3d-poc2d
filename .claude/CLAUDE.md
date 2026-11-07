@@ -221,7 +221,8 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [ ] **Sifflement audio = canal GAUCHE du module TDA2822** (diagnostic 2026-10-26, ce ne sont PAS les LEDs) : filtre RC 10 Ω + 1000 µF sur son VCC commandé ; plans B (Zobel, contourner le TDA, MAX98357A) → `docs/analyses/20261025_interferences_leds_audio.md` §5
 - [x] Condos de découplage 100µF en sortie TDA2822 : présents sur le module (vérifié visuellement 2026-10-24)
 - [x] **Session 2026-10-28** (détail : `docs/progress.md`) : EXTRA (TRIP / BRICK / PONG), refonte contrôles (appui long 2 molettes = MENU, DRAW au glisser, BOOM pas/piste), sauvegarde NVS (`src/ui/ui_storage.cpp`), fix reverb, audit ponytail (`docs/analyses/20261028_audit_ponytail.md`, corrigés 1/2/3/7/9)
-- [ ] **REPRENDRE ICI (2026-10-29)** : flasher le lot non flashé (AGE SON / AGE MAX, arp CONVERGE/DIVERGE/PEDALE + OCTAVES ARP), recueillir les retours de tests de Felix, puis **commiter** (rien n'est commité depuis `ef736e9`). Ensuite : tests HP G/D, audit restant (4, 5, 6, 8, 10–15)
+- [x] **Session 2026-10-29** (détail : `docs/progress.md`) : arpège façon Ableton (STYLE / RATE / GATE / SWING / ACCORD) + POMPE validée, SET AUDIO coloré par famille, presets migrés (`audio2`), commits `768c6de` + `96e1847`
+- [ ] **REPRENDRE ICI (2026-10-30)** : recueillir le retour de Felix sur **AGE VISU** (SET GOL : LUMIERE / COULEUR — flashé, PAS commité), puis commiter. Ensuite : tests HP G/D, audit restant (4, 5, 6, 8, 10–15), idées PLUIE (renommer/effet) et double-clic+maintien
 
 ---
 

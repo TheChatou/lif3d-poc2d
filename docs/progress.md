@@ -177,3 +177,25 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 - [ ] Tests HP : inverser les HP puis les fils DAC→ampli pour confirmer le canal gauche (proposé : réglage SYS « TEST HP G/D », pas encore fait)
 - [ ] Audit restant : n°4 (reverb int16), 5 (clic à l'écriture flash ?), 6 (PAN/SWING piste inutiles), 8 (test GoL), 10–15
 - [ ] Commiter tout ce travail (rien n'est commité depuis `ef736e9`)
+
+---
+
+## 2026-10-29 — Arpège façon Ableton, POMPE, couleurs des réglages, âge visible
+
+**Fait :**
+- Lot du 28/10 flashé et testé (AGE SON, CONVERGE / DIVERGE / PEDALE, OCTAVES ARP)
+- **Arpège façon Ableton** (`src/audio.cpp`, `src/ui/ui_pages.cpp`) : STYLE ARP = UP / DOWN / UP DOWN / DOWN UP / CONVERGE / DIVERGE / THUMB (ex-PEDALE) / PINKY / RANDOM / ACCORD / **POMPE** ; RATE ARP en valeurs de note (1/4 … 1/32, T = triolet) ; GATE ARP (durée des notes) ; SWING ARP 0–100 (remplace GROOVE ON/OFF) ; réglage ACCORD (TOUT / TIERCE / QUINTE) pour ARPEGE OFF ou le style ACCORD
+- **POMPE** : tiers grave des notes = basse (G), le reste = accord (A), MOTIF POMPE G A / G G A / G G A A / G A A — validée à l'écoute par Felix (« la pompe marche »)
+- **SET AUDIO en couleurs par famille** : cyan = musique, vert = son, violet = arpège, orange = batterie (champ `group` de `Setting`)
+- Glyphe `/` ajouté à FONT_3X5P (`tools/fonts_src.py` → `gen_fonts.py`)
+- Presets AUDIO convertis vers la clé NVS `audio2` (ancien format lu depuis `audio`, aucun preset perdu) ; les réglages courants repartent une fois aux défauts quand `Settings` change de taille
+- Commits `768c6de` (code) + `96e1847` (docs)
+- **AGE VISU** (SET GOL) : OFF / LUMIERE (cellule vieille = plus sombre, plancher 1/3) / COULEUR (jaune → violet), rythmé par AGE MAX — **flashé, PAS commité, pas encore de retour de Felix**
+- Note pédago : `docs/pedago/20261029_musique_arpegiateur.md` (tierce, quinte, thumb/pinky, pompe, rate/gate/swing)
+- Navigation : Felix a constaté que clic gauche = retour fonctionne bien → rien changé. PLUIE (long gauche en GOL) expliquée : 12 cellules au hasard pour réveiller la grille
+
+**Prochaines étapes :**
+- [ ] Retour de Felix sur AGE VISU (LUMIERE vs COULEUR, lisibilité à faible luminosité) puis commiter
+- [ ] Idées en suspens : renommer PLUIE (GRAINES / SEMER ?) ou effet visuel ; double-clic + maintien = retour au GOL ?
+- [ ] Tests HP G/D (canal gauche TDA2822), pont diviseur 10k/1k
+- [ ] Audit restant : n°4, 5, 6, 8, 10–15
