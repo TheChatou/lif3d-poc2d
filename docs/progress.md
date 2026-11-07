@@ -199,3 +199,30 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 - [ ] Idées en suspens : renommer PLUIE (GRAINES / SEMER ?) ou effet visuel ; double-clic + maintien = retour au GOL ?
 - [ ] Tests HP G/D (canal gauche TDA2822), pont diviseur 10k/1k
 - [ ] Audit restant : n°4, 5, 6, 8, 10–15
+
+---
+
+## 2026-11-07 — Filtre RC soudé, gros lot UI + audio, dossier V2
+
+**Matériel :**
+- Filtre RC 10 Ω + 1000 µF soudé sur le VCC du TDA2822 (+ 100 nF gardé) : sifflement atténué mais pas supprimé. Diagnostic affiné : aigu qui suit l'affichage et le PAM (alim partagée + gain ×100 du TDA), grave constant + ronronnement ~2 Hz (alim LRS en rafales ?), crachotement du potar (tension continue), gauche plus fort potar en bas (pistes du potar)
+- Fiche d'atelier (artifact « Code couleur résistances ») : code couleur, montage du filtre RC, **pont diviseur 10 k / 1 k (+ 10 nF)** à souder
+
+**Firmware (flashé, testé partiellement par Felix) :**
+- SYS : REDEMARRER, VOIX (4–16, défaut 16), DITHER ; RESET par page (AUDIO / GOL / BOOM) avec confirmation
+- SET GOL : familles de couleurs, CURSEUR (COLONNE / LUMIERE / NOTES = notes réellement jouées), 8 palettes (AGE VISU COULEUR propre à chaque palette, LUMIERE plus contrastée)
+- SET AUDIO : REPETE ARP (INF), FILTRE + RESO (passe-bas résonant), VOL BOOM supprimé (un seul volume dans SET BOOM)
+- REC : CHARGER / ECRASER / SUPPRIMER au clic droit, ▶ = play/pause partout
+- Texte en surimpression sur GOL/BOOM ; démarrage en pause ; logo glider vivant + fondus 1 s + mélodie I-vi-IV-V ; image de test rouge supprimée
+- DRAW : croix transparente ; appui long 2 molettes annulé si on tourne
+- Lignes de réglage mémorisées par page ; BPM max 180
+- Audio : limiteur, mixage 16 bits, reverb 16 bits, dither TPDF + noise shaping (`src/audio_out.h`, testé sur PC), kit **STUDIO** échantillonné (`tools/gen_drums.py` → `src/drum_samples.h`), presets BOOM DNB / MINIMAL / TECHNO / PSYTRANCE
+- ⚠️ Mozzi réellement installé = **1.1.2** (pas 2.x comme indiqué dans CLAUDE.md)
+
+**Docs :** `docs/analyses/20261107_audio_8bits_v1_et_v2.md`, dossier `docs/v2/` (README, problèmes V1, architecture, plan)
+
+**Prochaines étapes :**
+- [ ] Felix teste : kit STUDIO, FILTRE/RESO, DITHER ON/OFF, VOIX 16 (craquements ?), PSYTRANCE (~145 BPM), DNB (~174 BPM)
+- [ ] Souder le pont diviseur (fiche d'atelier)
+- [ ] Commiter tout le lot du 2026-11-07 (rien n'est commité depuis `2fadd7d`)
+- [ ] Phase 1 V2 : trancher les questions de `docs/v2/architecture.md` §5 puis `/project-spec`
