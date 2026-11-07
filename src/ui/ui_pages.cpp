@@ -17,10 +17,11 @@ struct Setting {
     uint8_t            group;      // famille de réglages → couleur (0 = couleur de la page)
 };
 
-// 🎓 Familles de la page AUDIO : une couleur par famille pour s'y retrouver
-//    d'un coup d'œil dans une longue liste (cyan = musique, vert = son,
-//    violet = arpège, orange = batterie).
-enum Group : uint8_t { G_PAGE, G_TONE, G_ARP, G_DRUM };
+// 🎓 Familles de réglages : une couleur par famille pour s'y retrouver
+//    d'un coup d'œil dans une longue liste.
+//    AUDIO : cyan = musique, vert = son, violet = arpège.
+//    GOL   : ambre = règles, rose = boucle, bleu = rendu visuel.
+enum Group : uint8_t { G_PAGE, G_TONE, G_ARP, G_LOOP, G_LOOK };
 
 static const char* const SCALES[]  = {"JAPONAISE", "PENTA", "PENTA MIN", "LYDIEN", "MIXOLYDIEN", "PHRYGIEN"};
 static const char* const TONICS[]  = {"C", "C+", "D", "D+", "E", "F", "F+", "G", "G+", "A", "A+", "B"};
@@ -34,50 +35,61 @@ static const char* const POMPES[]   = {"G A", "G G A", "G G A A", "G A A"};
 static const char* const ARPOCTS[]  = {"1", "2", "3"};
 static const char* const AGEMODES[] = {"OFF", "VOLUME", "TIMBRE"};
 static const char* const AGEVISUS[] = {"OFF", "LUMIERE", "COULEUR"};
+static const char* const CURSORS[]  = {"COLONNE", "LUMIERE", "NOTES"};
+static const char* const HOLDS[]    = {"OFF", "INF"};
+static const char* const VOICECOUNT[] = {"4", "8", "12", "16"};
 static const char* const ARPDIVS[]  = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};   // T = triolet
 static const char* const RULES[]   = {"CONWAY", "CORAL", "DENSE", "BUILDER", "SYMETRIC", "HIGHLIFE", "BALANCED"};  // même ordre que GOL_RULES (gol.cpp)
 static const char* const EVOLS[]   = {"1 TEMPS", "2 TEMPS", "4 TEMPS", "MESURE"};
 static const char* const LOOPLEN[] = {"X2", "X4", "X8"};
 static const char* const LOOPMOD[] = {"CYCLE", "ALLER RETOUR"};
 static const char* const SYMS[]    = {"AUCUNE", "X", "Y", "XY"};
-static const char* const PALS[]    = {"GLACE", "AMBRE", "SPECTRE"};
-static const char* const KITS[]    = {"808", "ACOUSTIC", "LOFI"};
+static const char* const PALS[]    = {"GLACE", "AMBRE", "SPECTRE", "FEU", "OCEAN", "FORET", "NEON", "IRIS"};   // même ordre que PALETTES (ui_live.cpp)
+static const char* const KITS[]    = {"808", "ACOUSTIC", "LOFI", "STUDIO"};   // STUDIO = échantillons (tools/gen_drums.py)
 static const char* const BOOTS[]   = {"TEXTE", "LOGO"};
 static const char* const HUBS[]    = {"2 NIVEAUX", "PLAT"};
 static const char* const SELS[]    = {"VIF", "CLIGNOTE", "COULEUR"};
 static const char* const PANS[]    = {"G2", "G1", "C", "D1", "D2"};
 static const char* const NOYES[]   = {"NON", "OUI"};
 static const char* const LEDTESTS[] = {"NORMAL", "NOIR", "FIGE", "SANS DITHER"};
-static int16_t dummy_action = 0;
+// 🎓 Une action n'a pas de valeur : son pointeur sert juste à la reconnaître.
+static int16_t act_diag = 0, act_reset = 0, act_reboot = 0;
 
 static const Setting SET_AUDIO[] = {
-    {"BPM", K_BAR, &cfg.bpm, 20, 140, nullptr},              {"GAMME", K_OPT, &cfg.scale, 0, 5, SCALES},
+    {"BPM", K_BAR, &cfg.bpm, 20, 180, nullptr},              {"GAMME", K_OPT, &cfg.scale, 0, 5, SCALES},
     {"TONIQUE", K_OPT, &cfg.tonic, 0, 11, TONICS},           {"OCTAVE", K_OPT, &cfg.octave, 0, 4, OCTAVES},
     {"TIMBRE", K_OPT, &cfg.timbre, 0, 6, TIMBRES, G_TONE},   {"ATTACK", K_BAR, &cfg.attack, 0, 100, nullptr, G_TONE},
     {"DECAY", K_BAR, &cfg.decay, 0, 100, nullptr, G_TONE},   {"REVERB", K_BAR, &cfg.reverb, 0, 100, nullptr, G_TONE},
+    {"FILTRE", K_BAR, &cfg.cutoff, 0, 100, nullptr, G_TONE}, {"RESO", K_BAR, &cfg.reso, 0, 100, nullptr, G_TONE},
     {"AGE SON", K_OPT, &cfg.age_mode, 0, 2, AGEMODES, G_TONE},
     {"ARPEGE", K_OPT, &cfg.arp, 0, 1, ONOFF, G_ARP},         {"STYLE ARP", K_OPT, &cfg.arp_mode, 0, 10, ARPMODES, G_ARP},
     {"RATE ARP", K_OPT, &cfg.arp_div, 0, 5, ARPDIVS, G_ARP}, {"GATE ARP", K_BAR, &cfg.arp_gate, 10, 100, nullptr, G_ARP},
     {"SWING ARP", K_BAR, &cfg.arp_swing, 0, 100, nullptr, G_ARP},
     {"OCTAVES ARP", K_OPT, &cfg.arp_oct, 0, 2, ARPOCTS, G_ARP},
+    {"REPETE ARP", K_OPT, &cfg.arp_hold, 0, 1, HOLDS, G_ARP},
     {"ACCORD", K_OPT, &cfg.chord, 0, 2, CHORDS, G_ARP},      {"MOTIF POMPE", K_OPT, &cfg.pompe, 0, 3, POMPES, G_ARP},
-    {"VOL BOOM", K_BAR, &cfg.boom_vol, 0, 100, nullptr, G_DRUM},
+    {"RESET", K_ACTION, &act_reset, 0, 0, nullptr},
 };
 static const Setting SET_GOL[] = {
-    {"REGLE", K_OPT, &cfg.rule, 0, 6, RULES},          {"EVOLUTION", K_OPT, &cfg.evolution, 0, 3, EVOLS},
-    {"LOOP", K_OPT, &cfg.loop_on, 0, 1, ONOFF},        {"DUREE LOOP", K_OPT, &cfg.loop_len, 0, 2, LOOPLEN},
-    {"LECTURE", K_OPT, &cfg.loop_mode, 0, 1, LOOPMOD}, {"SYMETRIE", K_OPT, &cfg.symmetry, 0, 3, SYMS},
-    {"DENSITE", K_BAR, &cfg.density, 0, 100, nullptr}, {"PALETTE", K_OPT, &cfg.palette, 0, 2, PALS},
-    {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr},   {"AGE VISU", K_OPT, &cfg.age_visu, 0, 2, AGEVISUS},
+    {"REGLE", K_OPT, &cfg.rule, 0, 6, RULES},                    {"EVOLUTION", K_OPT, &cfg.evolution, 0, 3, EVOLS},
+    {"DENSITE", K_BAR, &cfg.density, 0, 100, nullptr},           {"SYMETRIE", K_OPT, &cfg.symmetry, 0, 3, SYMS},
+    {"LOOP", K_OPT, &cfg.loop_on, 0, 1, ONOFF, G_LOOP},          {"DUREE LOOP", K_OPT, &cfg.loop_len, 0, 2, LOOPLEN, G_LOOP},
+    {"LECTURE", K_OPT, &cfg.loop_mode, 0, 1, LOOPMOD, G_LOOP},
+    {"PALETTE", K_OPT, &cfg.palette, 0, 7, PALS, G_LOOK},        {"AGE MAX", K_BAR, &cfg.age_max, 1, 8, nullptr, G_LOOK},
+    {"AGE VISU", K_OPT, &cfg.age_visu, 0, 2, AGEVISUS, G_LOOK}, {"CURSEUR", K_OPT, &cfg.cursor, 0, 2, CURSORS, G_LOOK},
+    {"RESET", K_ACTION, &act_reset, 0, 0, nullptr},
 };
 static const Setting SET_BOOM[] = {
-    {"KIT", K_OPT, &cfg.kit, 0, 2, KITS}, {"SWING", K_BAR, &cfg.swing, 0, 100, nullptr},
+    {"KIT", K_OPT, &cfg.kit, 0, 3, KITS}, {"SWING", K_BAR, &cfg.swing, 0, 100, nullptr},
     {"VOLUME", K_BAR, &cfg.boom_master, 0, 100, nullptr},
+    {"RESET", K_ACTION, &act_reset, 0, 0, nullptr},
 };
 static const Setting SET_SYS[] = {
     {"DEMARRAGE", K_OPT, &cfg.boot_style, 0, 1, BOOTS}, {"HUB", K_OPT, &cfg.hub_style, 0, 1, HUBS},
     {"SELECTION", K_OPT, &cfg.sel_style, 0, 2, SELS},   {"LUMINOSITE", K_BAR, &cfg.brightness, 8, 255, nullptr},
-    {"TEST LED", K_OPT, &cfg.led_test, 0, 3, LEDTESTS}, {"DIAG", K_ACTION, &dummy_action, 0, 0, nullptr},
+    {"TEST LED", K_OPT, &cfg.led_test, 0, 3, LEDTESTS}, {"VOIX", K_OPT, &cfg.voices, 0, 3, VOICECOUNT},
+    {"DITHER", K_OPT, &cfg.dither, 0, 1, ONOFF}, {"DIAG", K_ACTION, &act_diag, 0, 0, nullptr},
+    {"REDEMARRER", K_ACTION, &act_reboot, 0, 0, nullptr},
 };
 
 // Réglages d'une piste de la BOOM (8 pistes × 8 valeurs)
@@ -113,12 +125,14 @@ static CRGB page_color(uint8_t id) {
 }
 
 static uint8_t  page = 0, sel = 0;
+static uint8_t  last_sel[PAGE_COUNT] = {};   // 🎓 ligne pointée mémorisée par page : on y revient en rouvrant la page
 
 static CRGB item_color(const Setting& s) {
     switch (s.group) {
         case G_TONE: return CRGB(40, 255, 60);    // vert
         case G_ARP:  return CRGB(170, 0, 255);    // violet
-        case G_DRUM: return COL_BOOM;
+        case G_LOOP: return CRGB(255, 30, 120);   // rose
+        case G_LOOK: return CRGB(60, 110, 255);   // bleu
         default:     return page_color(page);
     }
 }
@@ -169,7 +183,7 @@ void page_open(uint8_t id, uint8_t track, uint8_t step) {
     if (id == PAGE_TRACK) build_track_page(track);
     if (id == PAGE_STEP) build_step_page(track, step);
     page = id;
-    sel = 0;
+    sel = last_sel[id];
     t_sel = millis();
     t_value = 0;
     editing = false;
@@ -188,6 +202,35 @@ static void end_edit(const Setting& s) {
     if (s.value == &cfg.led_test) { cfg.led_test = LT_NORMAL; apply(s); }
 }
 
+// 🎓 RESET d'une page : chaque réglage pointe vers un champ de `cfg`. On
+//    retrouve le même champ dans une structure Settings neuve (= valeurs par
+//    défaut) grâce à son décalage en octets (offset) depuis le début de cfg.
+static void reset_page() {
+    static Settings def;
+    const Page& p = pages[page];
+    for (uint8_t i = 0; i < p.count; i++) {
+        const Setting& s = p.items[i];
+        size_t off = (const char*)s.value - (const char*)&cfg;   // hors de cfg → énorme → ignoré
+        if (s.kind != K_ACTION && off < sizeof(Settings)) *s.value = *(const int16_t*)((const char*)&def + off);
+    }
+    toast("RESET OK", 600);
+}
+
+static void reboot() {
+    settings_save();   // sinon un réglage changé il y a moins de 2 s serait perdu
+    ESP.restart();     // 🎓 redémarrage logiciel : comme débrancher / rebrancher l'ESP32
+}
+
+static void run_action(const Setting& s) {
+    static char question[20];
+    if (s.value == &act_diag) nav_open(SCR_DIAG);
+    else if (s.value == &act_reboot) confirm_open("REDEMARRER ?", reboot);
+    else {
+        snprintf(question, sizeof(question), "RESET %s ?", pages[page].title);
+        confirm_open(question, reset_page);
+    }
+}
+
 // 🎓 Édition en 2 temps : tourner = choisir la ligne, clic droit = "j'édite",
 //    tourner = changer la valeur (EN DIRECT, pour entendre/voir l'effet),
 //    clic droit = valider ; clic gauche ou appui long = annuler / revenir.
@@ -200,10 +243,10 @@ void page_handle(const Event& ev) {
     bool back  = ev.type == EV_CLICK_A || ev.type == EV_LONG_A || ev.type == EV_LONG_B;
     if (!editing) {
         if (turn) {
-            sel = constrain(sel + ev.delta, 0, p.count - 1);
+            sel = last_sel[page] = constrain(sel + ev.delta, 0, p.count - 1);
             t_sel = millis();
         } else if (ok && s.kind == K_ACTION) {
-            nav_open(SCR_DIAG);
+            run_action(s);
         } else if (ok) {
             editing = true;
             backup = *s.value;

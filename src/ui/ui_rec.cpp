@@ -21,7 +21,7 @@ static uint8_t  bank = 0;
 static int8_t   slot = 0;
 static int8_t   menu = -1;   // -1 = grille ; sinon index dans MENU
 static uint32_t menu_t0 = 0;
-static const char* const MENU[]       = {"ANNULER", "ECRASER", "SUPPRIMER"};
+static const char* const MENU[]       = {"CHARGER", "ECRASER", "SUPPRIMER"};
 static const char* const BANK_NAMES[] = {"GOL", "BOOM", "AUDIO"};
 
 static CRGB bank_color() {
@@ -76,6 +76,67 @@ static void load_legacy_audio() {
     }
 }
 
+// 🎓 Rythmes d'usine de la BOOM. Une ligne par piste, 32 pas = 2 mesures de
+//    doubles-croches ; 'x' = coup, '.' = silence. Lisible comme une grille de
+//    boîte à rythmes. Ordre des pistes : KICK, SNARE, HAT, OPEN HAT, CLAP,
+//    TOM H, TOM M, TOM L. Le tempo, lui, se règle dans SET AUDIO > BPM.
+struct BoomPreset { const char* name; const char* tracks[8]; };
+static const BoomPreset BOOM_PRESETS[] = {
+    {"DNB", {   // d'après Pocket Operations : mesure 1 "two-step" (DnB 3), mesure 2 "Jungle A" (caisses roulées) — 170-175 BPM
+        "x.........x.....x.x.......x.....",
+        "....x.......x.......x..x.x....x.",
+        "x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.",
+        "", "", "", "", ""}},
+    {"MINIMAL", {   // minimal : kick 4/4, hats clairsemés, "clave" 3-3-2 au tom, clap rare — 122-126 BPM
+        "x...x...x...x...x...x...x...x...",
+        "",
+        "..x.x.x...x...x...x.x.x...x.x.x.",
+        "..............................x.",
+        "............x...................",
+        "",
+        "x..x..x...x..x..x..x..x...x..x..",
+        ""}},
+    {"PSYTRANCE", {   // psytrance : kick 4/4 + "basse roulante" au tom grave sur les 3 doubles-croches après chaque kick (K-B-B-B) — 140-148 BPM
+        "x...x...x...x...x...x...x...x...",
+        "",
+        "xx.xxx.xxx.xxx.xxx.xxx.xxx.xxx.x",
+        "..x...x...x...x...x...x...x...x.",
+        "............x...............x...",
+        "", "",
+        ".xxx.xxx.xxx.xxx.xxx.xxx.xxx.xxx"}},
+    {"TECHNO", {   // techno : kick 4/4, open hat sur les contretemps, vers 128-135 BPM
+        "x...x...x...x...x...x...x...x...",
+        "",
+        "xx.xxx.xxx.xxx.xxx.xxx.xxx.xxx.x",
+        "..x...x...x...x...x...x...x...x.",
+        "....x.......x.......x.......x...",
+        "", "",
+        "...........................x...x"}},
+};
+
+static uint32_t steps(const char* s) {
+    uint32_t bits = 0;
+    for (int i = 0; i < 32 && s[i]; i++) if (s[i] == 'x') bits |= 1UL << i;   // 🎓 bit i = pas i
+    return bits;
+}
+
+// Rythmes d'usine : remet à jour ceux déjà présents (par leur nom), ajoute les autres dans une case libre
+static void add_boom_presets() {
+    for (const BoomPreset& p : BOOM_PRESETS) {
+        int target = -1, free_slot = -1;
+        for (int k = SLOTS - 1; k >= 0; k--) {
+            const Slot& s = slots[BANK_BOOM][k];
+            if (s.used && !strcmp(s.name, p.name)) target = k;   // déjà là : on remet la version d'usine à jour
+            if (!s.used) free_slot = k;
+        }
+        if (target < 0) target = free_slot;
+        if (target < 0) continue;
+        slots[BANK_BOOM][target].used = true;
+        strlcpy(slots[BANK_BOOM][target].name, p.name, NAME_MAX + 1);
+        for (int t = 0; t < 8; t++) boom_patterns[target][t] = steps(p.tracks[t]);
+    }
+}
+
 static void init_presets() {
     static bool done = false;
     if (done) return;
@@ -104,6 +165,7 @@ static void init_presets() {
         nvs_load("boom", boom_patterns, sizeof(boom_patterns));
         if (!nvs_load("audio2", audio_presets, sizeof(audio_presets))) load_legacy_audio();
     }
+    add_boom_presets();
 }
 
 static void persist() {
@@ -174,7 +236,8 @@ static void menu_handle(const Event& ev) {
     } else if (ev.type == EV_CLICK_A || ev.type == EV_CLICK_B) {
         int8_t m = menu;
         menu = -1;
-        if (m == 1) ask_name(slots[bank][slot].name);
+        if (m == 0) load_slot();
+        else if (m == 1) ask_name(slots[bank][slot].name);
         else if (m == 2) confirm_open("SUPPRIMER ?", delete_slot);
     } else if (ev.type == EV_LONG_A || ev.type == EV_LONG_B) {
         menu = -1;
@@ -188,7 +251,6 @@ void rec_handle(const Event& ev) {
         case EV_TURN_A: slot = constrain(slot + ev.delta, 0, SLOTS - 1); break;       // case par case
         case EV_TURN_B: slot = constrain(slot + ev.delta * 4, slot % 4, 12 + slot % 4); break;  // ligne par ligne
         case EV_CLICK_A: toast(s.used ? s.name : "VIDE"); break;
-        case EV_CLICK_PLAY: if (s.used) load_slot(); else toast("VIDE"); break;
         case EV_CLICK_B:
             if (s.used) { menu = 0; menu_t0 = millis(); }
             else ask_name("");

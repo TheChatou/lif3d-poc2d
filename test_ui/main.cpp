@@ -22,14 +22,6 @@ void setup() {
     disp_init(USB_MAX_MA);
     disp_set_brightness(SAFE_BRIGHTNESS);
 
-    // 🎓 Test de sécurité : UNE seule LED rouge dans le coin pendant 2 s.
-    //    Si la matrice montre autre chose → débrancher : le signal DATA est faux.
-    disp_clear();
-    disp_set(0, 0, CRGB(255, 0, 0));
-    disp_show();
-    Serial.println("Safety frame: 1 red LED top-left");
-    delay(2000);
-
     input_init();
     ui_init();       // prépare la grille GoL et se branche sur l'horloge du séquenceur
     audio_init();    // 🎓 Mozzi pilote les DAC depuis sa propre tâche, sur le cœur 0

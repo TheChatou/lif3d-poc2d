@@ -153,7 +153,7 @@ static void poll_button(int i, uint32_t now) {
     // relâchement
     if (b.in_combo) {
         if (!btn[1 - i].pressed) {                   // le 2e relâché termine le combo
-            if (!combo_long) push(EV_CLICK_AB);
+            if (!combo_long && !b.turned && !btn[1 - i].turned) push(EV_CLICK_AB);   // tourné = c'était un geste (dessin), pas un clic
             combo_long = false;
         }
         return;
@@ -167,7 +167,11 @@ void input_poll() {
     uint32_t now = millis();
     for (int i = 0; i < 3; i++) poll_button(i, now);
     Button &a = btn[BTN_A], &b = btn[BTN_B];
-    if (a.in_combo && a.pressed && b.pressed && !combo_long && now - max(a.t_press, b.t_press) >= LONG_PRESS_MS) {
+    // 🎓 Appui long sur les 2 molettes = retour au MENU, de partout — mais
+    //    seulement si aucune molette n'a tourné pendant l'appui : enfoncer
+    //    les 2 et tourner (tracer en diagonale dans DRAW) n'ouvre plus rien.
+    if (a.in_combo && a.pressed && b.pressed && !combo_long && !a.turned && !b.turned &&
+        now - max(a.t_press, b.t_press) >= LONG_PRESS_MS) {
         combo_long = true;
         push(EV_LONG_AB);
     }

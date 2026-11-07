@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "ui_internal.h"
+#include "../audio.h"
 
 Settings cfg;
 
@@ -10,7 +11,7 @@ const CRGB COL_SYS    = CRGB(200, 200, 200);
 const CRGB COL_ACCENT = CRGB(255, 255, 255);
 
 #define BOOT_HOLD_MS  3000
-#define BOOT_FADE_MS   700
+#define BOOT_FADE_MS  1000   // fondu d'entrée ET de sortie de l'écran d'accueil
 #define HUB_FOCUS_Y      5    // ligne du menu sélectionné (centré)
 #define LINE_STEP        6    // 5 LEDs de texte + 1 d'interligne
 #define NAV_DEPTH        6
@@ -153,13 +154,31 @@ static void boot_render(uint32_t age) {
         draw_text(FONT_3X5, "LIF2D", 0, 5, COL_SOUND, &LOGO_KERN);
         return;
     }
-    static const uint8_t GLIDER[3] = {0b010, 0b001, 0b111};
-    int shift = age > BOOT_HOLD_MS ? (age - BOOT_HOLD_MS) / 120 : 0;  // le glider "s'envole"
-    for (int gy = 0; gy < 3; gy++)
-        for (int gx = 0; gx < 3; gx++)
-            if (GLIDER[gy] & (0b100 >> gx))
-                for (int d = 0; d < 9; d++) disp_set(3 + gx * 3 + d % 3 + shift, gy * 3 + d / 3 + shift, COL_VISUAL);
-    draw_text(FONT_3X5, "LIF2D", 0, 11, dim(COL_SOUND) * 2, &LOGO_KERN);
+    // 🎓 Le glider, le vaisseau le plus célèbre du Jeu de la Vie : on le fait
+    //    vraiment VIVRE (règles de Conway, génération par génération) sur une
+    //    petite grille de 12×12 cellules agrandies ×3. Toutes les 4
+    //    générations il retrouve sa forme, décalé d'une case en diagonale.
+    #define BOOT_N 12
+    uint8_t g[BOOT_N][BOOT_N] = {}, nx[BOOT_N][BOOT_N];
+    g[0][1] = g[1][2] = g[2][0] = g[2][1] = g[2][2] = 1;   // [y][x]
+    for (uint32_t gen = age / 110; gen; gen--) {
+        for (int y = 0; y < BOOT_N; y++)
+            for (int x = 0; x < BOOT_N; x++) {
+                int n = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int yy = y + dy, xx = x + dx;
+                        if ((dx || dy) && yy >= 0 && yy < BOOT_N && xx >= 0 && xx < BOOT_N) n += g[yy][xx];
+                    }
+                nx[y][x] = n == 3 || (n == 2 && g[y][x]);
+            }
+        memcpy(g, nx, sizeof(g));
+    }
+    for (int y = 0; y < BOOT_N; y++)
+        for (int x = 0; x < BOOT_N; x++)
+            if (g[y][x])
+                for (int d = 0; d < 9; d++) disp_set(x * 3 - 3 + d % 3, y * 3 - 3 + d / 3, COL_VISUAL);
+    draw_text(FONT_3X5, "LIF2D", 0, 5, dim(COL_SOUND) * 2, &LOGO_KERN);   // dessiné après = devant le glider
 }
 
 // ---------------------------------------------------------------- dispatcher
@@ -168,12 +187,13 @@ void ui_init() {
     disp_set_brightness(cfg.brightness);
     live_init();
     enter(SCR_BOOT, 0);
+    audio_play_jingle();   // jouée dès que la tâche audio démarre
 }
 
 static void handle(const Event& ev) {
-    // ▶ = play/pause partout, sauf DIAG (test des boutons), REC (▶ = charger
-    //   et lancer le preset) et la saisie de nom (▶ = valider le nom)
-    if (ev.type == EV_CLICK_PLAY && current != SCR_DIAG && current != SCR_REC && current != SCR_NAME) {
+    // ▶ = play/pause partout, sauf DIAG (test des boutons) et la saisie de
+    //   nom (▶ = valider le nom)
+    if (ev.type == EV_CLICK_PLAY && current != SCR_DIAG && current != SCR_NAME) {
         cfg.playing = !cfg.playing;
         toast(cfg.playing ? "PLAY" : "STOP");
         return;
@@ -221,13 +241,18 @@ void ui_update() {
     uint32_t age = screen_age_ms();
     uint8_t fade = 255;
     disp_clear();
-    if (toast_msg && millis() - toast_t < toast_ms) {
+    // 🎓 En live (GOL, BOOM), le message se pose PAR-DESSUS l'écran qui
+    //    continue de tourner : on voit l'effet (pluie, preset…) tout de suite.
+    bool toasting = toast_msg && millis() - toast_t < toast_ms;
+    bool over = current == SCR_GOL || current == SCR_BOOM;
+    if (toasting && !over) {
         draw_text_fit(FONT_3X5P, toast_msg, 5, COL_SYS, toast_t);
     } else {
-        toast_msg = nullptr;
+        if (!toasting) toast_msg = nullptr;
         switch (current) {
             case SCR_BOOT:
                 boot_render(age);
+                if (age < BOOT_FADE_MS) fade = age * 255 / BOOT_FADE_MS;   // 🎓 fondu : on monte la luminosité de 0 à 255
                 if (age > BOOT_HOLD_MS) fade = 255 - min<uint32_t>(255, (age - BOOT_HOLD_MS) * 255 / BOOT_FADE_MS);
                 if (age > BOOT_HOLD_MS + BOOT_FADE_MS) enter(SCR_HUB, 0);
                 break;
@@ -244,6 +269,7 @@ void ui_update() {
             case SCR_BRICK:   brick_render(); break;
             case SCR_PONG:    pong_render(); break;
         }
+        if (toasting) draw_text_fit(FONT_3X5P, toast_msg, 5, COL_ACCENT, toast_t);
     }
     disp_show(fade);
 }

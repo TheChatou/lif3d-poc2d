@@ -23,18 +23,23 @@ enum SelStyle  : int16_t { SEL_BRIGHT, SEL_BLINK, SEL_COLOR };
 
 // Tous les réglages. Son : envoyés à audio.cpp à chaque image (ui_live.cpp, push_audio_params).
 struct Settings {
-    int16_t bpm = 60, scale = 0, tonic = 9, octave = 2, timbre = 0, arp = 1, reverb = 30, boom_vol = 75;
+    int16_t bpm = 60, scale = 0, tonic = 9, octave = 2, timbre = 0, arp = 1, reverb = 30, boom_vol = 75;   // boom_vol inutilisé : gardé pour que la sauvegarde reste lisible
     int16_t attack = 15, decay = 40;
     int16_t arp_mode = 8, arp_div = 2, arp_swing = 0;    // RANDOM 1/8T, sans swing (STYLE : voir audio.h)
     int16_t arp_gate = 100, chord = 0, pompe = 0;      // notes libres, accord TOUT, pompe G A
     int16_t arp_oct = 0, age_mode = 1, age_max = 4;    // arpège sur 1 octave ; âge → VOLUME, mûre à 4 générations
     int16_t age_visu = 1;                              // âge → LEDs : 0 OFF, 1 LUMIERE (vieille = sombre), 2 COULEUR
+    int16_t cursor = 0;                                // colonne lue : 0 COLONNE, 1 LUMIERE, 2 NOTES
+    int16_t arp_hold = 0;                              // REPETE ARP : 0 OFF, 1 INF
+    int16_t voices = 3;                                // SYS > VOIX : 4, 8, 12, 16 (index)
+    int16_t cutoff = 100, reso = 20;                   // FILTRE (100 = ouvert) / RESO
+    int16_t dither = 1;                                // SYS > DITHER : 0 OFF, 1 ON
     int16_t rule = 0, evolution = 0, loop_on = 0, loop_len = 1, loop_mode = 0, symmetry = 0, density = 30, palette = 0;
     int16_t kit = 1, swing = 0, boom_master = 80;
     int16_t boot_style = BOOT_LOGO, hub_style = HUB_TWO_LEVELS, sel_style = SEL_BRIGHT, brightness = 20;
     int16_t volume = 70;      // molette droite en live
     int16_t led_test = 0;     // SYS > TEST LED (temporaire, revient à NORMAL en sortant de l'édition)
-    bool    playing = true;
+    bool    playing = false;   // au démarrage : en pause, ▶ pour lancer
 };
 extern Settings cfg;
 
@@ -92,3 +97,4 @@ bool nvs_load(const char* key, void* data, size_t len);   // false = rien de sau
 void nvs_save(const char* key, const void* data, size_t len);
 void settings_load();
 void settings_tick();
+void settings_save();   // écriture immédiate (avant un redémarrage)

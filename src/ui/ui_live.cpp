@@ -127,7 +127,9 @@ static void push_audio_params() {
     p.arp_mode = cfg.arp_mode;  p.arp_div = cfg.arp_div;  p.arp_swing = cfg.arp_swing;
     p.arp_gate = cfg.arp_gate;  p.chord = cfg.chord;  p.pompe = cfg.pompe;
     p.arp_oct = cfg.arp_oct + 1;  p.age_mode = cfg.age_mode;  p.age_max = cfg.age_max;
-    p.drum_volume = cfg.boom_vol * cfg.boom_master / 100;
+    p.arp_hold = cfg.arp_hold;  p.voices = (cfg.voices + 1) * 4;
+    p.cutoff = cfg.cutoff;  p.reso = cfg.reso;  p.dither = cfg.dither;
+    p.drum_volume = cfg.boom_master;   // un seul volume batterie : SET BOOM > VOLUME
     p.kit = cfg.kit;  p.swing = cfg.swing;
     memcpy(p.pattern, boom_pattern(), sizeof(p.pattern));
     for (int t = 0; t < 8; t++) {
@@ -181,24 +183,40 @@ static void turn_volume(int8_t d) {
     overlay_show("VOL", cfg.volume, 100);
 }
 
-static CRGB palette_color(int y) {
-    switch (cfg.palette) {
-        case 1:  return COL_VISUAL;
-        case 2:  return CHSV(y * 16, 220, 255);   // 🎓 HSV : la teinte varie avec la hauteur (= la note)
-        default: return CRGB(120, 220, 255);
-    }
+// 🎓 Une palette = une recette en HSV (Teinte, Saturation, Valeur) :
+//    hue   : teinte de départ (0 rouge, 32 orange, 64 jaune, 96 vert,
+//            128 cyan, 160 bleu, 192 violet, 224 rose — tour complet = 256)
+//    hue_y : décalage de teinte par rangée (la hauteur = la note)
+//    age   : de combien la teinte tourne entre une cellule née et une
+//            cellule mûre, en mode AGE VISU COULEUR (128 = teinte opposée)
+struct Palette { uint8_t hue, sat; int8_t hue_y; int16_t age; };
+static const Palette PALETTES[] = {
+    {139, 135,  0,  40},   // GLACE    : bleu glacier, vieillit vers le bleu profond
+    { 22, 235,  0, -22},   // AMBRE    : ambre, vieillit vers le rouge braise
+    {  0, 220, 16, 128},   // SPECTRE  : arc-en-ciel selon la note, vieillit vers la teinte opposée
+    {  0, 255,  2,  48},   // FEU      : rouge, vieillit vers le jaune (flamme)
+    {160, 240,  3, -64},   // OCEAN    : bleu, vieillit vers le vert lagon
+    { 96, 220,  2, -64},   // FORET    : vert, vieillit vers l'orange d'automne
+    {224, 255,  0, 128},   // NEON     : rose, vieillit vers le vert acide (opposé)
+    {  0, 240,  0, 200},   // IRIS     : crescendo arc-en-ciel, de rouge (née) à violet (mûre)
+};
+
+static CRGB palette_color(int y, uint8_t maturity = 0, bool by_age = false) {
+    const Palette& p = PALETTES[constrain(cfg.palette, 0, (int)(sizeof(PALETTES) / sizeof(Palette)) - 1)];
+    uint8_t hue = p.hue + p.hue_y * y + (by_age ? p.age * maturity / 255 : 0);
+    return CHSV(hue, p.sat, 255);
 }
 
 // 🎓 AGE VISU : maturité 0..255 (0 = née, 255 = AGE MAX générations ou plus),
 //    le même calcul que le son (audio.cpp, trigger_note).
-//    LUMIERE : la cellule pâlit en vieillissant (plancher 1/3 pour rester visible).
-//    COULEUR : la teinte glisse du jaune (née) au violet (vieille), via vert et bleu.
+//    LUMIERE : la cellule s'assombrit fortement en vieillissant (de 100 % à
+//              ~12 %) ; nscale8_video ne descend jamais jusqu'au noir complet.
+//    COULEUR : la teinte tourne selon la palette (voir PALETTES.age).
 static CRGB cell_color(int x, int y) {
     uint8_t amax = max<int16_t>(1, cfg.age_max), a = constrain(ages[y * DISP_W + x], 1, amax);
     uint8_t m = amax > 1 ? 255 * (a - 1) / (amax - 1) : 255;
-    if (cfg.age_visu == 2) return CHSV(64 + m / 2, 230, 255);
-    CRGB c = palette_color(y);
-    if (cfg.age_visu == 1) c.nscale8(255 - m * 2 / 3);
+    CRGB c = palette_color(y, m, cfg.age_visu == 2);
+    if (cfg.age_visu == 1) c.nscale8_video(255 - m * 225 / 255);
     return c;
 }
 
@@ -229,8 +247,8 @@ void gol_handle(const Event& ev) {
             break;
         case EV_TURN_B:
             if (ev.shift) {   // ▶ maintenu + B : BPM (fin si molette enfoncée)
-                cfg.bpm = constrain(cfg.bpm + ev.delta * (ev.pushed ? 1 : 5), 20, 140);
-                overlay_show("BPM", cfg.bpm, 140);
+                cfg.bpm = constrain(cfg.bpm + ev.delta * (ev.pushed ? 1 : 5), 20, 180);   // 180 : de quoi jouer de la drum'n'bass
+                overlay_show("BPM", cfg.bpm, 180);
             } else turn_volume(ev.delta);
             break;
         case EV_CLICK_A:  nav_open(SCR_PAGE, PAGE_SET_GOL);   page_open(PAGE_SET_GOL); break;
@@ -246,15 +264,28 @@ void gol_handle(const Event& ev) {
     }
 }
 
+// 🎓 CURSEUR = comment on montre la colonne lue :
+//    COLONNE : colonne blanche pâle + cellules lues en orange (le mode d'origine)
+//    LUMIERE : seules les cellules allumées de la colonne changent de couleur
+//    NOTES   : seules les notes VRAIMENT jouées s'allument, au rythme de
+//              l'arpège (le moteur son dit lesquelles : audio_lit_rows()).
+//              Avec REPETE INF, les notes répétées s'allument dans la colonne vide.
+enum { CUR_COLUMN, CUR_LIGHT, CUR_NOTES };
+#define COL_HIGHLIGHT CRGB(255, 200, 130)   // blanc chaud
+
 void gol_render() {
-    const CRGB playhead = CRGB(255, 120, 0);
-    uint8_t step16 = audio_current_col();
+    uint8_t  step16 = audio_current_col();
+    uint16_t lit = cfg.cursor == CUR_NOTES ? audio_lit_rows() : 0;
     for (int y = 0; y < DISP_H; y++) {
-        disp_set(step16, y, dim(COL_SYS));
+        if (cfg.cursor == CUR_COLUMN) disp_set(step16, y, dim(COL_SYS));
         for (int x = 0; x < DISP_W; x++) {
             if (!gol_get(grid, x, y)) continue;
-            disp_set(x, y, x == step16 ? playhead : cell_color(x, y));
+            CRGB c = cell_color(x, y);
+            if (x == step16 && cfg.cursor == CUR_COLUMN) c = CRGB(255, 120, 0);
+            if (x == step16 && cfg.cursor == CUR_LIGHT) c = COL_HIGHLIGHT;
+            disp_set(x, y, c);
         }
+        if (lit & (1 << y)) disp_set(step16, y, COL_HIGHLIGHT);
     }
 }
 
@@ -308,11 +339,19 @@ void draw_render() {
     for (int y = 0; y < DISP_H; y++)
         for (int x = 0; x < DISP_W; x++)
             if (gol_get(grid, x, y)) disp_set(x, y, cell_color(x, y));
-    // curseur en croix : centre clignotant, branches faibles
+    // 🎓 Curseur en croix "transparent" : on voit ce qui est dessous.
+    //    Branches : cellule allumée = sa couleur éclaircie (mélange avec du
+    //    blanc), cellule éteinte = blanc faible. Centre : clignote entre le
+    //    blanc du curseur et le VRAI état de la case (sa couleur, ou noir).
+    auto under = [](int x, int y) {
+        x = (x + DISP_W) % DISP_W; y = (y + DISP_H) % DISP_H;   // la croix fait le tour comme la grille
+        return gol_get(grid, x, y) ? blend(cell_color(x, y), COL_SYS, 110) : dim(COL_SYS);
+    };
     for (int d = -2; d <= 2; d++) {
         if (d == 0) continue;
-        disp_set(cur_x + d, cur_y, dim(COL_SYS));
-        disp_set(cur_x, cur_y + d, dim(COL_SYS));
+        disp_set(cur_x + d, cur_y, under(cur_x + d, cur_y));
+        disp_set(cur_x, cur_y + d, under(cur_x, cur_y + d));
     }
-    disp_set(cur_x, cur_y, (millis() / 250) % 2 ? COL_ACCENT : CRGB::Black);
+    CRGB real = gol_get(grid, cur_x, cur_y) ? cell_color(cur_x, cur_y) : CRGB::Black;
+    disp_set(cur_x, cur_y, (millis() / 250) % 2 ? COL_ACCENT : real);
 }

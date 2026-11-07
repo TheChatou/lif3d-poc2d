@@ -31,8 +31,10 @@ void settings_load() {
     if (!nvs_load(SETTINGS_KEY, &s, sizeof(s))) return;
     cfg = s;
     cfg.led_test = LT_NORMAL;   // jamais redémarrer en écran noir
-    cfg.playing = true;
+    cfg.playing = false;        // toujours démarrer en pause
 }
+
+void settings_save() { nvs_save(SETTINGS_KEY, &cfg, sizeof(cfg)); }
 
 // Appelé à chaque image : sauve les réglages 2 s après le dernier changement.
 void settings_tick() {
