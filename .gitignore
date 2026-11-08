@@ -13,11 +13,11 @@ __pycache__/
 *.pyd
 
 # ── Compilé C (simulateur) ────────────────────────────────────────────────────
-simulator/gol.so
-simulator/gol.o
+v1/simulator/python/gol.so
+v1/simulator/python/gol.o
 
 # ── Patterns sauvegardés (optionnel : retire la ligne suivante pour les versionner)
-# simulator/patterns/*.map
+# v1/simulator/python/patterns/*.map
 
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
@@ -32,7 +32,7 @@ Thumbs.db
 .claude/settings.local.json
 
 # ── Simulateur web ────────────────────────────────────────────────────────────
-simulator-web/node_modules/
+v1/simulator/web/node_modules/
 
 # ── CAO ───────────────────────────────────────────────────────────────────────
 *.FCBak

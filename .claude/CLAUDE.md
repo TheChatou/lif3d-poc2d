@@ -2,26 +2,25 @@
 
 ## Vue d'ensemble
 
-**LIF2D** est la Beta 1 du projet **LIF3D** : un afficheur visuel + séquenceur musical génératif basé sur le Jeu de la Vie de Conway.
+**LIF2D** : boîte à musique lumineuse — séquenceur musical génératif basé sur le Jeu de la Vie de Conway, matrice LED 16×16. Projet perso pour apprendre et s'amuser (la vente n'est pas un objectif).
 
-- **LIF2D (maintenant)** : version 2D à plat — matrice LED 16×16 + audio stéréo + 2 encodeurs + 1 bouton play/pause (design "ardoise magique" simplifié, révisé 2026-08-24)
-- **LIF3D (futur)** : rotor POV 32×32×32 à 1800 RPM, 3× ESP32-S3, WPT, son stéréo + subwoofer
+- **V1** (`v1/`, terminée nov. 2026) : ESP32 + matrice 16×16 + audio stéréo + 2 encodeurs + 1 bouton play/pause (design "ardoise magique", révisé 2026-08-24)
+- **V2** (`v2/`, en préparation) : corrige les défauts de la V1 (surtout le son) — une version à montrer et faire tester
+- **LIF3D** (`../Volumetric_3D/`) : concept d'origine en pause, rotor POV 32×32×32 — projet séparé
 
-Objectif Beta 1 : valider le moteur GoL 2D, le pipeline GoL→LED, le séquenceur musical, l'UI physique et le design boîtier.
-
-Doc technique complète : `docs/LIF2D_CONTEXT_CLAUDECODE.md`
+Nommage des versions : V1, V2, V3… (plus de « Beta 1 » / « POC »).
 
 ---
 
 ## Matériel
 
-> **Source de vérité à jour : `docs/CDC_LIF2D_Beta1_20260611.md` (v1.0 validé)**
+> **Source de vérité à jour : `v1/docs/cdc_v1_20260611.md` (v1.0 validé)**
 > Le tableau ci-dessous est un résumé — consulter le CDC pour la liste complète et les prix.
 
 ### En stock
 | Composant | Modèle réel | Notes |
 |---|---|---|
-| MCU | Clone USB-C 30-pin avec **ESP32-WROOM-32D** (puce ESP32-D0WD) | DAC GPIO 25/26 ✅ — ref: `docs/datasheet/ESP32-D_board_reference.md` |
+| MCU | Clone USB-C 30-pin avec **ESP32-WROOM-32D** (puce ESP32-D0WD) | DAC GPIO 25/26 ✅ — ref: `v1/hardware/datasheets/esp32_devkit_reference.md` |
 | Matrice LED | WS2812B 16×16 flexible 256 LEDs | 5V, signal DATA 3.3V + résistance 300Ω |
 | Ampli audio | PAM8403 (module simple, 4 trous sorties HP) | **3W+3W @ 4Ω** à 5V — LINE IN 3.3V ✅ |
 | HP | 2× 28mm 4Ω 3W | ✅ Appairés exactement avec le PAM8403 |
@@ -73,7 +72,7 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - Alimentation : **Mean Well LRS-75-5 (5V/14A)** — tout en 5V direct, aucun buck intermédiaire
 - Mozzi + FastLED → cœurs FreeRTOS séparés OBLIGATOIRE (conflit d'interruptions sinon)
   - ✅ Fait dans `ui_test` (2026-10-25) : `audio_init()` lance `audio_task` sur le **cœur 0** (rafales d'`audioHook()` + `vTaskDelay(1)`), UI/LEDs dans `loop()` sur le cœur 1. Réglages via `audio_set_params()` protégé par spinlock. (Inverse du schéma ci-dessus : à garder pour le firmware final)
-- Encodeurs EC11 : décodage quadrature par table sur interruptions (`src/ui/input.cpp`) = anti-rebond logiciel suffisant. Condos 100nF **retirés** (2026-10-26) ; s'ils sont remis : **entre ROTA et GND (en parallèle), JAMAIS en série** sur le fil
+- Encodeurs EC11 : décodage quadrature par table sur interruptions (`v1/firmware/src/ui/input.cpp`) = anti-rebond logiciel suffisant. Condos 100nF **retirés** (2026-10-26) ; s'ils sont remis : **entre ROTA et GND (en parallèle), JAMAIS en série** sur le fil
 - Grille GoL : bords toroïdaux, stocker en `uint8_t[16][16]` pour l'âge
 - ADC : utiliser **uniquement ADC1** (GPIO 32–39) — ADC2 incompatible avec certains timers Mozzi
 - PAM8403 : entrée LINE IN 3.3V direct depuis DAC ESP32 ✅ — optionnel : condo 100µF si bruit DC
@@ -81,30 +80,31 @@ Core 1 (audio)      :  Tâche Mozzi (séquenceur)
 - **MIDI OUT** : GPIO4 (UART2_TX remappé) → TRS 3.5mm Type A — `Serial2.begin(31250, SERIAL_8N1, -1, 4)`
 - **Audio OUT** : GPIO25/26 (DAC) → jack TRS commuté 5 broches PJ-302M → PAM8403 + sortie ligne — auto-mute HP sans code
 - **HP protection** : résistances 1Ω/1W en série sur sorties L+ et R+ du PAM8403
-- **Procédure de flash (boîte montée)** : débrancher le fil **VIN** de l'ESP32 (garder GND), USB = ESP32 seul, secteur = matrice + amplis. **Jamais USB + VIN branchés ensemble** (le 5 V USB alimenterait toute la boîte via VIN). Rebrancher VIN pour l'usage autonome. Port réel : `/dev/ttyUSB0` → `--upload-port /dev/ttyUSB0`
+- **Procédure de flash (boîte montée)** : débrancher le fil **VIN** de l'ESP32 (garder GND), USB = ESP32 seul, secteur = matrice + amplis. **Jamais USB + VIN branchés ensemble** (le 5 V USB alimenterait toute la boîte via VIN). Rebrancher VIN pour l'usage autonome. Port réel : `/dev/ttyUSB0` → `cd v1/firmware && pio run -e ui_test -t upload --upload-port /dev/ttyUSB0`
 - **FastLED figé en 3.10.3** dans `env:ui_test` (la 3.10.8 a donné une matrice toute blanche) — ne jamais remettre `^`
-- **Orientation matrice** : `ORIENT_TRANSPOSE 1` seul dans `src/ui/display.cpp` (validé sur la boîte)
+- **Orientation matrice** : `ORIENT_TRANSPOSE 1` seul dans `v1/firmware/src/ui/display.cpp` (validé sur la boîte)
 
 ---
 
-## Structure des fichiers
+## Structure des fichiers (réorganisée le 2026-11-08, variante « par version »)
 
 ```
-src/
-├── main.cpp          ← init + assemblage tâches FreeRTOS
-├── gol.h / gol.cpp   ← moteur GoL 2D (grille 16×16, règles configurables)
-├── leds.h / leds.cpp ← pilotage WS2812B via FastLED
-├── audio.h / audio.cpp ← séquenceur Mozzi, mapping GoL→notes
-└── controls.h / controls.cpp ← encodeurs, potentiomètres, boutons
-src/ui/              ← système de menus (polices, affichage, entrées, hub, pages, BOOM…) — testé via env:ui_test
-test_ui/main.cpp     ← firmware de test des menus (avec son Mozzi)
-tools/fonts_src.py + gen_fonts.py ← polices pixel (source) → src/ui/font_data.h
-include/
-└── config.h          ← toutes les constantes (#define) et attribution pins GPIO
-tools/
-└── visualizer.py     ← debug Serial→Python
-docs/
-└── LIF2D_CONTEXT_CLAUDECODE.md ← spec technique complète (à lire si besoin de détails)
+v1/
+├── firmware/          ← projet PlatformIO : lancer `pio` DEPUIS ce dossier
+│   ├── platformio.ini
+│   ├── src/           ← main.cpp, gol, audio, controls, drum_samples.h
+│   │   └── ui/        ← menus (polices, affichage, entrées, hub, pages, BOOM…) — env:ui_test
+│   ├── include/config.h ← constantes et pins GPIO
+│   ├── bench/leds/, bench/ui/ ← firmwares de test (env:led_test, env:ui_test)
+│   └── tools/         ← gen_fonts.py, gen_drums.py (→ src/)
+├── simulator/python/  ← sim.py, build.sh (compile firmware/src/gol.cpp → gol.so), patterns, samples
+├── simulator/web/     ← simulateur web
+├── hardware/          ← freecad/ (boîtier + composants/), impression_3d/, datasheets/
+├── docs/              ← cdc_v1_20260611.md, brief_design.md, tuto_montage.md
+└── archives/          ← anciennes maquettes du simulateur web
+v2/docs/               ← préparation V2 (README, architecture, plan, problemes_v1)
+docs/                  ← commun : progress.md, analyses/, pedago/, media/photos, media/screens
+Makefile               ← simulateur Python (make run / test), .venv à la racine
 ```
 
 ---
@@ -194,36 +194,37 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - [x] Simulateur GoL 3D Python (`/home/chatou/Documents/Projets/Lif3D/Volumetric_3D/Tests/lif3d_gol3d_simulator.py`)
 - [x] Visualiseur Web POV interactif (`pov_volumetrique_principe.html`)
 - [x] `platformio.ini` configuré (FastLED + Mozzi)
-- [x] Spécification complète rédigée (`docs/LIF2D_CONTEXT_CLAUDECODE.md`)
+- [x] Spécification complète rédigée (résumé d'avril, supprimé le 2026-11-08 — remplacé par ce fichier)
 - [x] `include/config.h` — constantes + pins GPIO (280 lignes)
-- [x] `src/gol.cpp` + `src/gol.h` — moteur GoL 2D (229 lignes)
-- [x] Simulateur Python (`simulator/sim.py` v4) avec audio .wav + filtre biquad
+- [x] `v1/firmware/src/gol.cpp` + `gol.h` — moteur GoL 2D (229 lignes)
+- [x] Simulateur Python (`v1/simulator/python/sim.py` v4) avec audio .wav + filtre biquad
 - [x] Gammes musicales validées à l'écoute (Japonaise prioritaire)
 - [x] Paramètres sonores validés (cloche de cristal 15ms attack, 350ms decay)
 - [x] Hardware en stock : WS2812B, PAM8403, HP 28mm ×2, ESP32-WROOM-32D (clone USB-C)
-- [x] CDC v1.0 validé (`docs/CDC_LIF2D_Beta1_20260611.md`) — source de vérité du projet
+- [x] CDC v1.0 validé (`v1/docs/cdc_v1_20260611.md`) — source de vérité du projet
 - [x] Bilan de puissance validé — chaîne LRS-75-5 5V/14A (`docs/analyses/20260612_bilan_puissance.md`)
-- [x] Pinout ESP32-D documenté (`docs/datasheet/ESP32-D_board_reference.md`)
-- [x] **Hardware complet assemblé dans le boîtier final** (2026-10-24) — matrice rachetée après court-circuit, schéma as-built + photos dans `docs/photos/`, vérifié conforme à `config.h`
+- [x] Pinout ESP32-D documenté (`v1/hardware/datasheets/esp32_devkit_reference.md`)
+- [x] **Hardware complet assemblé dans le boîtier final** (2026-10-24) — matrice rachetée après court-circuit, schéma as-built + photos dans `docs/media/photos/`, vérifié conforme à `config.h`
 - [x] First light : firmware de test (chiffres/texte 3×5/glider) tourne sur la matrice
 
 ### À faire — phase software (plan d'attaque validé 2026-10-24, une étape à la fois)
 - [x] **Étape 0 — Ménage git** (2026-10-24, tag `hardware-done`) : commit du travail en attente + tag `hardware-done`
 - [x] **Étape 1 — Conception UI** (2026-10-24) : gestes, conventions, écrans, typos → `docs/analyses/20261024_ui_grammaire_controles.md`, `20261024_actions_et_conventions_machines.md`, `20261024_ecrans_maquettes_16x16.md` (§0 = révision v2 qui fait foi), `20261024_typographies_16x16.md`
-- [x] ~~Étape 2 — Simulateur web~~ → remplacé par un **firmware de test directement sur la boîte** (`env:ui_test`, `src/ui/` + `test_ui/main.cpp`) — 1re version validée "dans l'ensemble" par Felix le 2026-10-25
+- [x] ~~Étape 2 — Simulateur web~~ → remplacé par un **firmware de test directement sur la boîte** (`env:ui_test`, `v1/firmware/src/ui/` + `v1/firmware/bench/ui/main.cpp`) — 1re version validée "dans l'ensemble" par Felix le 2026-10-25
 - [ ] **Étape 3 — Itérer sur `ui_test`** : corriger les petits bugs, déplacement dans les presets peu pratique, retester la lisibilité des pages de réglages (variante "réglage en gros" si besoin)
 - [x] **Étape 3b — Musique dans `ui_test`** (2026-10-26) : Mozzi/`audio.cpp` branché, l'horloge du séquenceur fait avancer le GoL ; ▶ et volume reliés. Reste à relier BPM/gamme/timbre/BOOM (étape 5)
 - [x] **Étape 3c — Réparer les 2 encodeurs** (2026-10-26) : condos retirés, `ENC_SINGLE_CHANNEL 0`, `INVERT_A/B 1` (horaire = descendre/augmenter)
 - [ ] **Son qui crache encore** (2026-10-25) : saturation/soft-clip + Mozzi sur cœur 0 + réglages arpège (MODE/VITESSE/GROOVE) faits et flashés, mais pas encore propre. Prochains suspects : saturation analogique entrée ampli (diviseur), TDA2822 gauche, grain du DAC 8 bits → voir mémoire projet
-- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `src/ui/` au firmware principal (sauvegarde NVS ✅ faite le 2026-10-28 dans `src/ui/ui_storage.cpp`)
+- [ ] **Étape 4 — Firmware final contrôles + menus** : intégrer `v1/firmware/src/ui/` au firmware principal (sauvegarde NVS ✅ faite le 2026-10-28 dans `v1/firmware/src/ui/ui_storage.cpp`)
 - [ ] **Étape 5 — Audio** : relier les réglages (BPM, gamme, timbre…) à `audio.cpp` + **gain staging TDA2822 / PAM8403**
-- [ ] **Étape 6 — Assemblage** : `src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
+- [ ] **Étape 6 — Assemblage** : `v1/firmware/src/main.cpp` final FreeRTOS 2 cœurs, tests sur la boîte
 - [ ] **Sifflement audio = canal GAUCHE du module TDA2822** (diagnostic 2026-10-26, ce ne sont PAS les LEDs) : filtre RC 10 Ω + 1000 µF sur son VCC commandé ; plans B (Zobel, contourner le TDA, MAX98357A) → `docs/analyses/20261025_interferences_leds_audio.md` §5
 - [x] Condos de découplage 100µF en sortie TDA2822 : présents sur le module (vérifié visuellement 2026-10-24)
-- [x] **Session 2026-10-28** (détail : `docs/progress.md`) : EXTRA (TRIP / BRICK / PONG), refonte contrôles (appui long 2 molettes = MENU, DRAW au glisser, BOOM pas/piste), sauvegarde NVS (`src/ui/ui_storage.cpp`), fix reverb, audit ponytail (`docs/analyses/20261028_audit_ponytail.md`, corrigés 1/2/3/7/9)
+- [x] **Session 2026-10-28** (détail : `docs/progress.md`) : EXTRA (TRIP / BRICK / PONG), refonte contrôles (appui long 2 molettes = MENU, DRAW au glisser, BOOM pas/piste), sauvegarde NVS (`v1/firmware/src/ui/ui_storage.cpp`), fix reverb, audit ponytail (`docs/analyses/20261028_audit_ponytail.md`, corrigés 1/2/3/7/9)
 - [x] **Session 2026-10-29** (détail : `docs/progress.md`) : arpège façon Ableton (STYLE / RATE / GATE / SWING / ACCORD) + POMPE validée, SET AUDIO coloré par famille, presets migrés (`audio2`), commits `768c6de` + `96e1847`
-- [x] **Session 2026-11-07** (détail : `docs/progress.md`) : filtre RC soudé, gros lot UI (RESET, REDEMARRER, CURSEUR, palettes, REC, DRAW…), audio 16 bits + limiteur + dither + FILTRE/RESO + kit STUDIO échantillonné, presets BOOM, dossier `docs/v2/`
-- [ ] **REPRENDRE ICI (2026-11-08)** : retours de test de Felix (kit STUDIO, FILTRE/RESO, DITHER, VOIX 16, PSYTRANCE/DNB), souder le pont diviseur, puis phase 1 V2 (tout est commité : `97c951d`) (`docs/v2/plan.md`)
+- [x] **Session 2026-11-07** (détail : `docs/progress.md`) : filtre RC soudé, gros lot UI (RESET, REDEMARRER, CURSEUR, palettes, REC, DRAW…), audio 16 bits + limiteur + dither + FILTRE/RESO + kit STUDIO échantillonné, presets BOOM, dossier `v2/docs/`
+- [ ] **REPRENDRE ICI (2026-11-08)** : retours de test de Felix (kit STUDIO, FILTRE/RESO, DITHER, VOIX 16, PSYTRANCE/DNB), souder le pont diviseur, puis phase 1 V2 (tout est commité : `97c951d`) (`v2/docs/plan.md`)
+- [ ] **Après la réorg du 2026-11-08** (commitée) : sur Notion retirer la phase 6 « petite série » et les tâches de vente non validées
 
 ---
 
@@ -232,7 +233,7 @@ Tout le paramétrage (BPM, gamme, timbre, octave, luminosité, règles GoL...) p
 - Toujours coder en C/C++ Arduino pour l'ESP32, framework PlatformIO
 - Ne pas inventer d'attribution de pins — attendre `config.h` ou demander
 - Prioriser la fiabilité temps-réel (pas de `delay()` dans les tâches FreeRTOS)
-- Mettre à jour ce fichier + `docs/LIF2D_CONTEXT_CLAUDECODE.md` quand l'architecture évolue
+- Mettre à jour ce fichier quand l'architecture évolue
 - Mettre à jour la mémoire projet (auto-memory) à chaque jalon important
 - Travailler en français avec Felix
 

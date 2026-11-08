@@ -14,7 +14,7 @@ Beta 1 du projet **LIF3D** : un afficheur LED 16×16 piloté par le Jeu de la Vi
 Esthétique steampunk haute-fidélité, aucune installation requise.
 
 ```bash
-cd simulator-web
+cd v1/simulator/web
 npx serve .        # ou python3 -m http.server 8080
 # → ouvrir http://localhost:8080
 ```
@@ -34,13 +34,13 @@ Tourne directement le moteur GoL en C via ctypes. Utile pour tester le firmware.
 
 ```bash
 # 1. Installer les dépendances Python
-pip install -r simulator/requirements.txt
+pip install -r v1/simulator/python/requirements.txt
 
 # 2. Compiler le moteur GoL en bibliothèque native
-bash simulator/build.sh
+bash v1/simulator/python/build.sh
 
 # 3. Lancer
-python3 simulator/sim.py
+python3 v1/simulator/python/sim.py
 ```
 
 | Touche | Action |
@@ -57,25 +57,15 @@ python3 simulator/sim.py
 ## Structure du projet
 
 ```
-src/
-├── gol.h / gol.cpp       ← moteur GoL pur C (ESP32 + simulateur)
-├── leds.h / leds.cpp     ← matrice WS2812B via FastLED        (TODO)
-├── audio.h / audio.cpp   ← séquenceur Mozzi                   (TODO)
-├── controls.h / .cpp     ← encodeurs, potentiomètres          (TODO)
-└── main.cpp              ← assemblage FreeRTOS                 (TODO)
-include/
-└── config.h              ← toutes les constantes et pins GPIO
-simulator/
-├── sim.py                ← simulateur pygame (fait tourner gol.so)
-├── build.sh              ← compile gol.cpp → gol.so
-└── requirements.txt
-simulator-web/
-├── index.html            ← entrée HTML (React 18 + Babel CDN)
-├── css/                  ← styles (tokens steampunk, layout, controls, expert)
-├── js/                   ← composants (engine, audio, controls, matrix, machine, expert, app)
-└── reference/            ← prototype de design original (non-production)
-docs/
-└── LIF2D_CONTEXT_CLAUDECODE.md   ← spec technique complète
+v1/                       ← la boîte terminée en novembre 2026
+├── firmware/             ← projet PlatformIO (src/, include/config.h, bench/, tools/)
+├── simulator/python/     ← simulateur pygame (sim.py, build.sh → gol.so)
+├── simulator/web/        ← simulateur web (React 18 + Babel CDN)
+├── hardware/             ← FreeCAD, fichiers d'impression 3D, datasheets
+├── docs/                 ← cahier des charges V1, brief design, tuto de montage
+└── archives/             ← anciennes maquettes du simulateur web
+v2/docs/                  ← préparation de la V2
+docs/                     ← journal (progress.md), analyses, notes pédago, photos et captures
 ```
 
 ---
@@ -86,6 +76,7 @@ docs/
 - Libs auto-installées : FastLED ^3.6.0, Mozzi ^2.0.0
 
 ```bash
+cd v1/firmware
 pio run        # compiler
 pio run -t upload   # flasher l'ESP32
 ```

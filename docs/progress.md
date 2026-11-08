@@ -225,4 +225,22 @@ ESP32-D, WS2812B 16×16, PAM8403 HW-894, HP 4Ω ×2, alim 12V/2A BF-1220, LM2596
 - [ ] Felix teste : kit STUDIO, FILTRE/RESO, DITHER ON/OFF, VOIX 16 (craquements ?), PSYTRANCE (~145 BPM), DNB (~174 BPM)
 - [ ] Souder le pont diviseur (fiche d'atelier)
 - [x] Lot du 2026-11-07 commité (`300398d`, `72610c7`, `97c951d`)
-- [ ] Phase 1 V2 : trancher les questions de `docs/v2/architecture.md` §5 puis `/project-spec`
+- [ ] Phase 1 V2 : trancher les questions de `v2/docs/architecture.md` §5 puis `/project-spec`
+
+---
+
+## 2026-11-08 — Notion + réorganisation du dépôt par version
+
+- **Notion** : phases LIF2D 0–7 et LIF3D L1–L2 séparées, colonne Projet, vues LIF2D / LIF3D / Frise ; la Timeline de création (9 actes, images) remplace la colonne de droite de la page principale.
+- **Versions** : on parle désormais de V1 (la boîte finie), V2, V3… — plus de « Beta 1 » ni de « POC ». Projet perso, la vente n'est pas un objectif.
+- **Réorganisation (tidy, variante « par version »)** : `v1/` (firmware, simulateurs, hardware, docs, archives), `v2/docs/`, `docs/` commun (progress, analyses, pedago, media). Docs LIF3D déplacés vers `../Volumetric_3D/`.
+  - `pio` se lance depuis `v1/firmware/` ; `make run` / `make test` toujours depuis la racine.
+  - Corbeille : KiCad d'essai, sauvegardes FreeCAD, anciennes versions .3mf, doublons, `LIF2D_CONTEXT_CLAUDECODE.md`, `reccuperation.tx`.
+  - Photos HEIC converties en JPG pleine résolution (4032×3024).
+  - Vérifié : `pio run` esp32dev / led_test / ui_test OK, `make test` OK.
+  - Les anciennes analyses datées gardent leurs anciens chemins (comptes rendus d'époque).
+
+**Prochaines étapes :**
+- [x] Réorganisation commitée et poussée
+- [ ] Notion : retirer la phase 6 « Produit V2 / petite série » et les tâches de vente non validées
+- [ ] Reprendre : tests audio de Felix, pont diviseur, phase 1 V2 (`v2/docs/plan.md`)

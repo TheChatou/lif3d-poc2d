@@ -21,13 +21,13 @@ RESET   = \033[0m
 ## Par défaut : compile gol.so
 all: build
 
-## Recompiler le moteur C (gol.so) depuis src/gol.cpp
+## Recompiler le moteur C (gol.so) depuis v1/firmware/src/gol.cpp
 build:
-	@bash simulator/build.sh
+	@bash v1/simulator/python/build.sh
 
 ## Compiler + lancer le simulateur
 run: build
-	@$(PY) simulator/sim.py
+	@$(PY) v1/simulator/python/sim.py
 
 ## Recompiler proprement + lancer (= fclean + run)
 re: clean build run
@@ -52,17 +52,17 @@ install:
 ##    chaque fonction prend. Le rapport trie par temps total cumulé (cumtime).
 profile: build
 	@printf "$(CYAN)Profiling 30s... (ferme la fenêtre pour arrêter)$(RESET)\n"
-	@$(PY) -m cProfile -s cumulative simulator/sim.py 2>&1 | head -40
+	@$(PY) -m cProfile -s cumulative v1/simulator/python/sim.py 2>&1 | head -40
 
 ## Mesurer la mémoire ligne par ligne (nécessite memory_profiler)
 profile-mem: build
 	@$(PIP) install memory_profiler -q
-	@$(PY) -m memory_profiler simulator/sim.py
+	@$(PY) -m memory_profiler v1/simulator/python/sim.py
 
 ## Vérifier que gol.so et toutes les libs Python chargent correctement
 test: build
 	@printf "$(CYAN)── Tests dépendances ──────────────────────$(RESET)\n"
-	@$(PY) -c "import ctypes; ctypes.CDLL('./simulator/gol.so'); print('  $(GREEN)[OK]$(RESET) gol.so')"
+	@$(PY) -c "import ctypes; ctypes.CDLL('./v1/simulator/python/gol.so'); print('  $(GREEN)[OK]$(RESET) gol.so')"
 	@$(PY) -c "import pygame;      print('  $(GREEN)[OK]$(RESET) pygame       ' + pygame.__version__)"
 	@$(PY) -c "import numpy;       print('  $(GREEN)[OK]$(RESET) numpy        ' + numpy.__version__)"
 	@$(PY) -c "import sounddevice; print('  $(GREEN)[OK]$(RESET) sounddevice  ' + sounddevice.__version__)"
@@ -86,13 +86,13 @@ sd.wait(); print('$(GREEN)[OK]$(RESET) Son 440 Hz joué — tu l''entends ?')"
 
 ## Supprimer gol.so et __pycache__
 clean:
-	@rm -f simulator/gol.so
+	@rm -f v1/simulator/python/gol.so
 	@find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null; true
 	@printf "$(GREEN)[clean]$(RESET) gol.so + caches supprimés\n"
 
 ## Supprimer aussi les patterns sauvegardés
 fclean: clean
-	@rm -f simulator/patterns/*.map
+	@rm -f v1/simulator/python/patterns/*.map
 	@printf "$(GREEN)[fclean]$(RESET) patterns supprimés\n"
 
 ################################################################################
